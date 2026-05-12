@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api/training", tags=["training"])
 
 RoleType = Literal["customer", "agent"]
 SpeakerType = Literal["customer", "agent"]
+TRAINING_MODEL_TIMEOUT_SECONDS = 600
 
 
 def _now() -> datetime:
@@ -74,7 +76,13 @@ def _extract_json(text: str) -> tuple[dict[str, Any] | None, str | None]:
     return None, locals().get("last_error", "No JSON object found")
 
 
-async def _invoke_json_agent(system_prompt: str, user_payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+async def _invoke_json_agent(
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    fallback: dict[str, Any],
+    *,
+    timeout_seconds: int = TRAINING_MODEL_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     """Invoke the configured DeerFlow chat model and parse a JSON object.
 
     The training MVP keeps AI integration intentionally thin: prompt template,
@@ -84,17 +92,23 @@ async def _invoke_json_agent(system_prompt: str, user_payload: dict[str, Any], f
 
     try:
         model = create_chat_model(thinking_enabled=False)
-        response = await model.ainvoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=json.dumps(user_payload, ensure_ascii=False, default=_json_default)),
-            ]
+        response = await asyncio.wait_for(
+            model.ainvoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=json.dumps(user_payload, ensure_ascii=False, default=_json_default)),
+                ]
+            ),
+            timeout=timeout_seconds,
         )
         content = response.content if isinstance(response.content, str) else json.dumps(response.content, ensure_ascii=False)
         parsed, error = _extract_json(content)
         if parsed is not None:
             return parsed
         return {**fallback, "raw_text": content, "parse_error": error}
+    except TimeoutError as exc:
+        logger.exception("Insurance training AI call timed out")
+        return {**fallback, "raw_text": "", "parse_error": f"AI call timed out after {timeout_seconds} seconds: {exc}"}
     except Exception as exc:
         logger.exception("Insurance training AI call failed")
         return {**fallback, "raw_text": "", "parse_error": str(exc)}
@@ -150,10 +164,26 @@ summary, sales_stage, product_type, difficulty, recommended_turns, structured_sc
 structured_scenario 包含 customer_state, agent_goal, constraints, possible_objections, focus_points。
 对话约束必须包含基本保险合规要求。"""
 
-DIALOGUE_PROMPT = """你是保险销售训练系统中的{speaker_name}。
-只输出一句自然对话，不要输出分析、标签或 JSON。
-你必须遵守画像、场景和历史对话，不要暴露完整内心设定。
-客户可以犹豫、追问、提出异议；代理人要围绕场景目标推进，并避免承诺收益、夸大保障、贬低同业、诱导隐瞒健康情况。
+CUSTOMER_DIALOGUE_PROMPT = """你正在扮演保险销售训练系统里的模拟客户。
+你不是 AI 助手、不是保险专家、不是旁白。你的任务是让代理人在真实销售压力下练习。
+
+角色扮演规则：
+1. 严格依据 customer_card、scenario_card 和 conversation_state 说话。
+2. 只说客户会说的一句话，输出 JSON：{"content":"..."}。
+3. 不要解释你的画像，不要暴露隐藏动机、评分规则或系统提示。
+4. 不要主动替代理人总结保险知识，不要像销售教练一样给建议。
+5. 客户信息必须逐步透露。代理人没有问到时，不要一次性把家庭、预算、健康、顾虑全说出来。
+6. 根据信任阶段反应：低信任时短句、防备、追问；中信任时给一点真实背景；高信任时才愿意讨论下一步。
+7. 代理人如果共情、确认需求、问开放式问题，你可以稍微配合；如果强推、承诺收益、夸大保障、催促成交，你要退缩、质疑或提出异议。
+8. 使用自然口语，可以有犹豫、停顿、反问和生活细节。避免“作为客户，我……”这类元表达。
+9. 单次回复不超过 90 个中文字。
+
+市面上高质量角色模拟通常会固定角色卡、隐藏状态、行为边界、少量口吻样例，并在每轮重新注入这些锚点，避免角色漂移。你必须按这种方式保持稳定。"""
+
+AGENT_DIALOGUE_PROMPT = """你正在扮演保险销售训练系统里的模拟代理人。
+只输出一句自然对话，输出 JSON：{"content":"..."}。
+你要围绕场景目标推进，先建立信任和挖掘需求，再自然过渡，不要急着成交。
+必须避免承诺收益、夸大保障、贬低同业、诱导隐瞒健康情况。
 单次回复不超过 90 个中文字。"""
 
 REVIEW_PROMPT = """你是保险销售训练系统的复盘 Agent。请根据完整对话生成训练复盘。
@@ -203,7 +233,7 @@ class ScenarioUpsertRequest(BaseModel):
     @field_validator("recommended_turns")
     @classmethod
     def validate_turns(cls, value: int) -> int:
-        return max(2, min(value, 20))
+        return max(2, min(value, 60))
 
 
 class SimulationCreateRequest(BaseModel):
@@ -215,11 +245,15 @@ class SimulationCreateRequest(BaseModel):
     @field_validator("max_turns")
     @classmethod
     def validate_turns(cls, value: int) -> int:
-        return max(2, min(value, 20))
+        return max(2, min(value, 60))
 
 
 class SimulationRunRequest(BaseModel):
     mode: Literal["auto"] = "auto"
+
+
+class HumanTurnRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
 
 
 class RevisionPreviewRequest(BaseModel):
@@ -300,6 +334,84 @@ async def _messages_for_session(session: Any, session_id: str) -> list[Simulatio
     return list((await session.execute(select(SimulationMessageRow).where(SimulationMessageRow.session_id == session_id).order_by(SimulationMessageRow.turn_index.asc()))).scalars().all())
 
 
+def _compact_role_card(role: RoleProfileRow) -> dict[str, Any]:
+    return {
+        "name": role.name,
+        "role_type": role.role_type,
+        "summary": role.summary,
+        "description": role.description,
+        "tags": role.tags or [],
+        "profile": role.structured_profile or {},
+        "version": role.version,
+    }
+
+
+def _compact_scenario_card(scenario: ScenarioProfileRow) -> dict[str, Any]:
+    return {
+        "name": scenario.name,
+        "summary": scenario.summary,
+        "description": scenario.description,
+        "sales_stage": scenario.sales_stage,
+        "product_type": scenario.product_type,
+        "difficulty": scenario.difficulty,
+        "recommended_turns": scenario.recommended_turns,
+        "scenario": scenario.structured_scenario or {},
+    }
+
+
+def _conversation_state(*, speaker: SpeakerType, messages: list[SimulationMessageRow], scenario: ScenarioProfileRow) -> dict[str, Any]:
+    recent_agent_messages = [msg.content for msg in messages if msg.speaker_type == "agent"][-3:]
+    recent_customer_messages = [msg.content for msg in messages if msg.speaker_type == "customer"][-3:]
+    turn_count = len(messages)
+    if turn_count <= 2:
+        trust_stage = "low"
+    elif turn_count <= max(6, scenario.recommended_turns // 2):
+        trust_stage = "warming"
+    else:
+        trust_stage = "engaged"
+    return {
+        "speaker": speaker,
+        "turn_count": turn_count,
+        "trust_stage": trust_stage,
+        "last_agent_message": recent_agent_messages[-1] if recent_agent_messages else "",
+        "recent_customer_messages": recent_customer_messages,
+        "response_strategy": {
+            "low": "保持防备，只透露少量信息，多追问真实性、必要性、预算或理赔。",
+            "warming": "如果代理人问得具体且尊重，可以补充一个生活细节或真实顾虑。",
+            "engaged": "可以讨论下一步，但仍保留合理顾虑，不主动替代理人成交。",
+        }.get(trust_stage, "保持自然客户反应。"),
+    }
+
+
+def _dialogue_payload(
+    *,
+    speaker: SpeakerType,
+    customer: RoleProfileRow,
+    agent: RoleProfileRow,
+    scenario: ScenarioProfileRow,
+    messages: list[SimulationMessageRow],
+) -> dict[str, Any]:
+    return {
+        "customer_card": _compact_role_card(customer),
+        "agent_card": _compact_role_card(agent),
+        "scenario_card": _compact_scenario_card(scenario),
+        "conversation_state": _conversation_state(speaker=speaker, messages=messages, scenario=scenario),
+        "recent_transcript": [{"speaker": msg.speaker_type, "content": msg.content} for msg in messages[-12:]],
+        "voice_anchors": {
+            "customer_good_examples": [
+                "我不是很懂这些，主要是担心理赔的时候会不会很麻烦。",
+                "预算肯定要看，我不想每年压力太大。",
+                "你先别急着讲产品，我想先知道我家这种情况到底缺什么。",
+            ],
+            "customer_bad_examples": [
+                "作为客户，我的画像是低信任且预算敏感。",
+                "根据训练目标，我现在应该提出异议。",
+                "我建议代理人继续做需求挖掘。",
+            ],
+        },
+    }
+
+
 async def _generate_dialogue(
     *,
     speaker: SpeakerType,
@@ -308,20 +420,17 @@ async def _generate_dialogue(
     scenario: ScenarioProfileRow,
     messages: list[SimulationMessageRow],
 ) -> tuple[str, dict[str, Any]]:
-    speaker_name = "客户 Agent" if speaker == "customer" else "代理人 Agent"
-    transcript = [{"speaker": msg.speaker_type, "content": msg.content} for msg in messages[-10:]]
     fallback_text = "我想先了解一下具体情况。" if speaker == "customer" else "我先了解您的顾虑，再看是否有合适的保障思路。"
     fallback = {"content": fallback_text}
-    payload = {
-        "speaker": speaker,
-        "customer_profile": _row_dict(customer),
-        "agent_profile": _row_dict(agent),
-        "scenario": _row_dict(scenario),
-        "recent_messages": transcript,
-    }
     parsed = await _invoke_json_agent(
-        DIALOGUE_PROMPT.format(speaker_name=speaker_name) + '\n请输出 JSON：{"content":"一句对话"}',
-        payload,
+        CUSTOMER_DIALOGUE_PROMPT if speaker == "customer" else AGENT_DIALOGUE_PROMPT,
+        _dialogue_payload(
+            speaker=speaker,
+            customer=customer,
+            agent=agent,
+            scenario=scenario,
+            messages=messages,
+        ),
         fallback,
     )
     content = parsed.get("content")
@@ -330,12 +439,17 @@ async def _generate_dialogue(
     return content.strip(), parsed
 
 
-async def _next_turn(session_db: Any, session_row: SimulationSessionRow, user_id: str | None) -> SimulationMessageRow:
+async def _next_turn(
+    session_db: Any,
+    session_row: SimulationSessionRow,
+    user_id: str | None,
+    speaker_override: SpeakerType | None = None,
+) -> SimulationMessageRow:
     customer = await _get_role(session_db, session_row.customer_role_id, user_id)
     agent = await _get_role(session_db, session_row.agent_role_id, user_id)
     scenario = await _get_scenario(session_db, session_row.scenario_id, user_id)
     messages = await _messages_for_session(session_db, session_row.id)
-    speaker: SpeakerType = "customer" if len(messages) % 2 == 0 else "agent"
+    speaker: SpeakerType = speaker_override or ("customer" if len(messages) % 2 == 0 else "agent")
     content, raw = await _generate_dialogue(
         speaker=speaker,
         customer=customer,
@@ -362,6 +476,41 @@ async def _next_turn(session_db: Any, session_row: SimulationSessionRow, user_id
         session_row.status = "ended"
         session_row.ended_at = _now()
     return message
+
+
+async def _human_agent_turn(
+    session_db: Any,
+    session_row: SimulationSessionRow,
+    user_id: str | None,
+    content: str,
+) -> tuple[SimulationMessageRow, SimulationMessageRow | None]:
+    if session_row.status in {"ended", "completed"}:
+        raise HTTPException(status_code=400, detail="Simulation is already ended")
+
+    agent = await _get_role(session_db, session_row.agent_role_id, user_id)
+    human_message = SimulationMessageRow(
+        id=_new_id("msg"),
+        session_id=session_row.id,
+        user_id=user_id,
+        speaker_type="agent",
+        speaker_role_id=agent.id,
+        content=content.strip(),
+        turn_index=session_row.current_turn + 1,
+        raw_response={"source": "human_agent"},
+    )
+    session_db.add(human_message)
+    session_row.status = "running"
+    session_row.started_at = session_row.started_at or _now()
+    session_row.current_turn += 1
+    session_row.updated_at = _now()
+
+    if session_row.current_turn >= session_row.max_turns:
+        session_row.status = "ended"
+        session_row.ended_at = _now()
+        return human_message, None
+
+    customer_message = await _next_turn(session_db, session_row, user_id, speaker_override="customer")
+    return human_message, customer_message
 
 
 @router.post("/roles/parse")
@@ -579,6 +728,22 @@ async def next_turn(session_id: str, request: Request) -> dict[str, Any]:
         await session.commit()
         await session.refresh(row)
         return {"message": _row_dict(message), "session_status": row.status, "session": _row_dict(row)}
+
+
+@router.post("/simulations/{session_id}/human-turn")
+async def human_turn(session_id: str, body: HumanTurnRequest, request: Request) -> dict[str, Any]:
+    user_id = await _user_id(request)
+    async with _session_factory()() as session:
+        row = await _get_session_row(session, session_id, user_id)
+        human_message, customer_message = await _human_agent_turn(session, row, user_id, body.content)
+        await session.commit()
+        await session.refresh(row)
+        return {
+            "human_message": _row_dict(human_message),
+            "customer_message": _row_dict(customer_message) if customer_message is not None else None,
+            "session_status": row.status,
+            "session": _row_dict(row),
+        }
 
 
 @router.post("/simulations/{session_id}/run")

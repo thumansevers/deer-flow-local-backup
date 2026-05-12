@@ -2,20 +2,35 @@ import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
 const base = () => `${getBackendBaseURL()}/api/training`;
+const TRAINING_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${base()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Training API failed: ${res.status}`);
+  const controller = init?.signal ? null : new AbortController();
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(), TRAINING_REQUEST_TIMEOUT_MS)
+    : null;
+  try {
+    const res = await fetch(`${base()}${path}`, {
+      ...init,
+      signal: init?.signal ?? controller?.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `Training API failed: ${res.status}`);
+    }
+    return (await res.json()) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("训练请求超过 10 分钟未完成，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
   }
-  return (await res.json()) as T;
 }
 
 export type TrainingRoleType = "customer" | "agent";
@@ -157,6 +172,22 @@ export const trainingApi = {
     }>(`/simulations/${id}/run`, {
       method: "POST",
       body: JSON.stringify({ mode: "auto" }),
+    }),
+  nextTurn: (id: string) =>
+    request<{
+      message: TrainingMessage;
+      session_status: string;
+      session: TrainingSimulation;
+    }>(`/simulations/${id}/next-turn`, { method: "POST" }),
+  humanTurn: (id: string, content: string) =>
+    request<{
+      human_message: TrainingMessage;
+      customer_message: TrainingMessage | null;
+      session_status: string;
+      session: TrainingSimulation;
+    }>(`/simulations/${id}/human-turn`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
     }),
   getSimulation: (id: string) =>
     request<TrainingSimulation>(`/simulations/${id}`),
