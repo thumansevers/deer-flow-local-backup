@@ -5,6 +5,7 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  Trash2Icon,
   UserRoundIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -128,6 +129,26 @@ export default function TrainingRolesPage() {
         avatar_url: avatarUrl,
       });
       toast.success("角色已保存");
+      await reload();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteRole(role: TrainingRole) {
+    if (
+      !window.confirm(
+        `确认删除角色“${role.name}”？删除后不会出现在角色库和对练选择里。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(`delete-role-${role.id}`);
+    try {
+      await trainingApi.deleteRole(role.id);
+      toast.success("角色已删除");
       await reload();
     } catch (error) {
       showError(error);
@@ -281,12 +302,16 @@ export default function TrainingRolesPage() {
             description="用于模拟真实客户的异议、关注点和沟通风格。"
             roles={customers}
             emptyTitle="还没有客户角色"
+            busy={busy}
+            onDelete={deleteRole}
           />
           <RoleColumn
             title="代理人角色"
             description="用于模拟不同能力阶段和销售风格的代理人。"
             roles={agents}
             emptyTitle="还没有代理人角色"
+            busy={busy}
+            onDelete={deleteRole}
           />
         </div>
       </div>
@@ -299,11 +324,15 @@ function RoleColumn({
   description,
   roles,
   emptyTitle,
+  busy,
+  onDelete,
 }: {
   title: string;
   description: string;
   roles: TrainingRole[];
   emptyTitle: string;
+  busy: string | null;
+  onDelete: (role: TrainingRole) => void;
 }) {
   return (
     <Panel>
@@ -314,7 +343,22 @@ function RoleColumn({
       />
       <div className="mt-4 space-y-2">
         {roles.length ? (
-          roles.map((role) => <RoleCard key={role.id} role={role} />)
+          roles.map((role) => (
+            <div key={role.id} className="group relative">
+              <RoleCard role={role} />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 size-8 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                disabled={busy === `delete-role-${role.id}`}
+                title="删除角色"
+                onClick={() => onDelete(role)}
+              >
+                <Trash2Icon className="size-4" />
+              </Button>
+            </div>
+          ))
         ) : (
           <EmptyState
             icon={title.includes("客户") ? UserRoundIcon : BotIcon}

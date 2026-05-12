@@ -141,6 +141,8 @@ export const trainingApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  deleteRole: (id: string) =>
+    request<{ success: boolean }>(`/roles/${id}`, { method: "DELETE" }),
   scenarios: () => request<TrainingScenario[]>("/scenarios"),
   parseScenario: (body: {
     name: string;
@@ -161,6 +163,8 @@ export const trainingApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  deleteScenario: (id: string) =>
+    request<{ success: boolean }>(`/scenarios/${id}`, { method: "DELETE" }),
   simulations: () => request<TrainingSimulation[]>("/simulations"),
   createSimulation: (body: {
     customer_role_id: string;

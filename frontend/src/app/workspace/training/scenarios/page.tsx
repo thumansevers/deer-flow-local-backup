@@ -6,6 +6,7 @@ import {
   RefreshCwIcon,
   SparklesIcon,
   TargetIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -91,6 +92,26 @@ export default function TrainingScenariosPage() {
         structured_scenario: parseJsonObject(scenarioJson),
       });
       toast.success("场景已保存");
+      await reload();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteScenario(scenario: TrainingScenario) {
+    if (
+      !window.confirm(
+        `确认删除场景“${scenario.name}”？删除后不会出现在对练选择里。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(`delete-scenario-${scenario.id}`);
+    try {
+      await trainingApi.deleteScenario(scenario.id);
+      toast.success("场景已删除");
       await reload();
     } catch (error) {
       showError(error);
@@ -252,7 +273,20 @@ export default function TrainingScenariosPage() {
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {scenarios.length ? (
               scenarios.map((scenario) => (
-                <ScenarioCard key={scenario.id} scenario={scenario} />
+                <div key={scenario.id} className="group relative">
+                  <ScenarioCard scenario={scenario} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 size-8 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                    disabled={busy === `delete-scenario-${scenario.id}`}
+                    title="删除场景"
+                    onClick={() => deleteScenario(scenario)}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
+                </div>
               ))
             ) : (
               <div className="lg:col-span-2">
