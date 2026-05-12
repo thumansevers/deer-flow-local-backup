@@ -423,7 +423,7 @@ class ParseRoleRequest(BaseModel):
     role_type: RoleType
     name: str = Field(min_length=1, max_length=200)
     basic_fields: dict[str, Any] = Field(default_factory=dict)
-    description: str = Field(default="", max_length=4000)
+    description: str = Field(default="", max_length=50000)
 
 
 class RoleUpsertRequest(BaseModel):
@@ -439,7 +439,7 @@ class RoleUpsertRequest(BaseModel):
 class ParseScenarioRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     basic_fields: dict[str, Any] = Field(default_factory=dict)
-    description: str = Field(default="", max_length=4000)
+    description: str = Field(default="", max_length=50000)
 
 
 class ScenarioUpsertRequest(BaseModel):
