@@ -310,8 +310,8 @@ export default function TrainingSimulationsPage() {
         />
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div className="space-y-5">
+      <div className="grid items-start gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="space-y-5 2xl:sticky 2xl:top-4">
           <Panel>
             <SectionTitle
               icon={PlayIcon}
@@ -385,6 +385,70 @@ export default function TrainingSimulationsPage() {
 
           <Panel>
             <SectionTitle
+              icon={MessageSquareTextIcon}
+              title="角色与场景"
+              description="选择项会同步到训练控制台。"
+            />
+            <div className="mt-4 space-y-4">
+              <CompactSelection title="客户角色">
+                {customers.length ? (
+                  customers.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedCustomerId === role.id}
+                      onClick={() => setSelectedCustomerId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={UserRoundIcon}
+                    title="没有客户角色"
+                    description="请先到角色工厂创建客户。"
+                  />
+                )}
+              </CompactSelection>
+              <CompactSelection title="代理人角色">
+                {agents.length ? (
+                  agents.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedAgentId === role.id}
+                      onClick={() => setSelectedAgentId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={BotIcon}
+                    title="没有代理人角色"
+                    description="请先到角色工厂创建代理人。"
+                  />
+                )}
+              </CompactSelection>
+              <CompactSelection title="销售场景">
+                {scenarios.length ? (
+                  scenarios.map((scenario) => (
+                    <ScenarioCard
+                      key={scenario.id}
+                      scenario={scenario}
+                      active={selectedScenarioId === scenario.id}
+                      onClick={() => setSelectedScenarioId(scenario.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={FileTextIcon}
+                    title="没有训练场景"
+                    description="请先到场景工厂创建场景。"
+                  />
+                )}
+              </CompactSelection>
+            </div>
+          </Panel>
+
+          <Panel>
+            <SectionTitle
               icon={Clock3Icon}
               title="最近对练"
               description="点击历史记录可回看对话。"
@@ -421,238 +485,160 @@ export default function TrainingSimulationsPage() {
         </div>
 
         <div className="space-y-5">
-          <Panel>
-            <SectionTitle
-              icon={MessageSquareTextIcon}
-              title="角色与场景选择"
-              description="选择项会同步到左侧训练控制台。"
-            />
-            <div className="mt-4 grid gap-4 lg:grid-cols-3">
-              <SelectionColumn title="客户角色">
-                {customers.length ? (
-                  customers.map((role) => (
-                    <RoleCard
-                      key={role.id}
-                      role={role}
-                      active={selectedCustomerId === role.id}
-                      onClick={() => setSelectedCustomerId(role.id)}
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={UserRoundIcon}
-                    title="没有客户角色"
-                    description="请先到角色工厂创建客户。"
-                  />
-                )}
-              </SelectionColumn>
-              <SelectionColumn title="代理人角色">
-                {agents.length ? (
-                  agents.map((role) => (
-                    <RoleCard
-                      key={role.id}
-                      role={role}
-                      active={selectedAgentId === role.id}
-                      onClick={() => setSelectedAgentId(role.id)}
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={BotIcon}
-                    title="没有代理人角色"
-                    description="请先到角色工厂创建代理人。"
-                  />
-                )}
-              </SelectionColumn>
-              <SelectionColumn title="销售场景">
-                {scenarios.length ? (
-                  scenarios.map((scenario) => (
-                    <ScenarioCard
-                      key={scenario.id}
-                      scenario={scenario}
-                      active={selectedScenarioId === scenario.id}
-                      onClick={() => setSelectedScenarioId(scenario.id)}
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={FileTextIcon}
-                    title="没有训练场景"
-                    description="请先到场景工厂创建场景。"
-                  />
-                )}
-              </SelectionColumn>
-            </div>
-          </Panel>
-
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-            <Panel>
+          <Panel className="min-h-[640px]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <SectionTitle
                 icon={MessageSquareTextIcon}
                 title="对话过程"
                 description="手动模式下输入你的代理人话术，客户会逐轮回应。"
               />
-              <div className="mt-4 min-h-[360px] space-y-3">
-                {activeSimulation?.messages?.length ? (
-                  <>
-                    {activeSimulation.messages.map((message) => (
-                      <ChatBubble key={message.id} message={message} />
-                    ))}
-                    {(busy === "manual-turn" || busy === "run-simulation") && (
-                      <LoadingBubble
-                        label={
-                          busy === "manual-turn"
-                            ? "客户正在思考"
-                            : "正在生成下一句"
-                        }
-                      />
-                    )}
-                  </>
-                ) : busy === "manual-turn" || busy === "run-simulation" ? (
-                  <LoadingBubble
-                    label={
-                      busy === "manual-turn" ? "客户正在思考" : "正在生成第一句"
-                    }
-                  />
+              <Button
+                variant="outline"
+                disabled={
+                  !activeSimulation ||
+                  busy === "review" ||
+                  activeSimulation.status === "created"
+                }
+                onClick={() => void createReview()}
+              >
+                {busy === "review" ? (
+                  <Loader2Icon className="size-4 animate-spin" />
                 ) : (
-                  <EmptyState
-                    icon={MessageSquareTextIcon}
-                    title="还没有对话"
-                    description="选择角色和场景后，输入一句话术或启动自动对练。"
-                  />
+                  <BadgeCheckIcon className="size-4" />
                 )}
-              </div>
-              {practiceMode === "manual" && (
-                <div className="bg-background mt-4 rounded-md border p-3">
-                  <Textarea
-                    rows={3}
-                    value={agentInput}
-                    placeholder="输入你要对客户说的话，例如：我先不急着介绍产品，想了解一下您现在最担心的家庭风险是什么？"
-                    disabled={busy === "manual-turn"}
-                    onChange={(event) => setAgentInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        (event.metaKey || event.ctrlKey)
-                      ) {
-                        event.preventDefault();
-                        void sendHumanTurn();
-                      }
-                    }}
-                  />
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="text-muted-foreground text-xs">
-                      Ctrl/⌘ + Enter 发送。请求最多等待 10 分钟。
-                    </div>
-                    <Button
-                      disabled={!agentInput.trim() || busy === "manual-turn"}
-                      onClick={() => void sendHumanTurn()}
-                    >
-                      {busy === "manual-turn" ? (
-                        <Loader2Icon className="size-4 animate-spin" />
-                      ) : (
-                        <MessageSquareTextIcon className="size-4" />
-                      )}
-                      发送并等待客户
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Panel>
+                复盘当前对话
+              </Button>
+            </div>
 
-            <Panel>
+            <div className="bg-muted/10 mt-4 min-h-[460px] space-y-3 rounded-md border p-4">
+              {activeSimulation?.messages?.length ? (
+                <>
+                  {activeSimulation.messages.map((message) => (
+                    <ChatBubble key={message.id} message={message} />
+                  ))}
+                  {(busy === "manual-turn" || busy === "run-simulation") && (
+                    <LoadingBubble
+                      label={
+                        busy === "manual-turn"
+                          ? "客户正在思考"
+                          : "正在生成下一句"
+                      }
+                    />
+                  )}
+                </>
+              ) : busy === "manual-turn" || busy === "run-simulation" ? (
+                <LoadingBubble
+                  label={
+                    busy === "manual-turn" ? "客户正在思考" : "正在生成第一句"
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={MessageSquareTextIcon}
+                  title="还没有对话"
+                  description="选择角色和场景后，输入一句话术或启动自动对练。"
+                />
+              )}
+            </div>
+            {practiceMode === "manual" && (
+              <div className="bg-background mt-4 rounded-md border p-3">
+                <Textarea
+                  rows={3}
+                  value={agentInput}
+                  placeholder="输入你要对客户说的话，例如：我先不急着介绍产品，想了解一下您现在最担心的家庭风险是什么？"
+                  disabled={busy === "manual-turn"}
+                  onChange={(event) => setAgentInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      (event.metaKey || event.ctrlKey)
+                    ) {
+                      event.preventDefault();
+                      void sendHumanTurn();
+                    }
+                  }}
+                />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-muted-foreground text-xs">
+                    Ctrl/⌘ + Enter 发送。请求最多等待 10 分钟。
+                  </div>
+                  <Button
+                    disabled={!agentInput.trim() || busy === "manual-turn"}
+                    onClick={() => void sendHumanTurn()}
+                  >
+                    {busy === "manual-turn" ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <MessageSquareTextIcon className="size-4" />
+                    )}
+                    发送并等待客户
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Panel>
+
+          <Panel>
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <SectionTitle
                 icon={BadgeCheckIcon}
-                title="复盘与画像修订"
-                description="AI 只生成建议，确认后才写入新版本。"
+                title="复盘报告"
+                description="复盘当前对话，输出评分、话术反馈、合规风险和画像更新建议。"
               />
-              {!activeReport ? (
-                <div className="mt-4">
-                  <EmptyState
-                    icon={BadgeCheckIcon}
-                    title="暂无复盘报告"
-                    description="对练完成后点击生成复盘报告。"
-                  />
-                </div>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <p className="text-sm leading-6">{activeReport.summary}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {Object.entries(activeReport.report.scores ?? {}).map(
-                      ([key, value]) => (
-                        <div key={key} className="rounded-md border p-2">
-                          <div className="text-muted-foreground truncate text-xs">
-                            {key}
-                          </div>
-                          <div className="text-lg font-semibold">{value}/5</div>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                  <ReportList
-                    title="优势"
-                    items={activeReport.report.strengths}
-                  />
-                  <ReportList
-                    title="待改进"
-                    items={activeReport.report.weaknesses}
-                  />
-                  <ReportList
-                    title="优秀话术"
-                    items={activeReport.report.good_phrases}
-                  />
-                  <ReportList
-                    title="下一轮建议"
-                    items={activeReport.report.next_training_advice}
-                  />
-                  <ReportList
-                    title="合规风险"
-                    items={activeReport.report.compliance_risks}
-                  />
-
-                  <div className="grid gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={busy === "preview-customer"}
-                      onClick={() => void previewRevision("customer")}
-                    >
-                      <SparklesIcon className="size-4" />
-                      预览客户画像建议
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy === "preview-agent"}
-                      onClick={() => void previewRevision("agent")}
-                    >
-                      <SparklesIcon className="size-4" />
-                      预览代理人升级建议
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {revisionPreview && (
-                <div className="bg-muted/20 mt-4 space-y-3 rounded-md border p-3">
-                  <p className="text-muted-foreground text-sm leading-6">
-                    {revisionPreview.change_reason}
-                  </p>
-                  <Textarea
-                    readOnly
-                    className="font-mono text-xs"
-                    rows={8}
-                    value={pretty(revisionPreview.diff)}
-                  />
+              {activeReport && (
+                <div className="flex gap-2">
                   <Button
-                    className="w-full"
-                    disabled={busy === "apply-revision"}
-                    onClick={() => void applyRevision()}
+                    variant="outline"
+                    disabled={busy === "preview-customer"}
+                    onClick={() => void previewRevision("customer")}
                   >
-                    应用画像更新
+                    <SparklesIcon className="size-4" />
+                    客户画像建议
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={busy === "preview-agent"}
+                    onClick={() => void previewRevision("agent")}
+                  >
+                    <SparklesIcon className="size-4" />
+                    代理人升级建议
                   </Button>
                 </div>
               )}
-            </Panel>
-          </div>
+            </div>
+            {!activeReport ? (
+              <div className="mt-4">
+                <EmptyState
+                  icon={BadgeCheckIcon}
+                  title="暂无复盘报告"
+                  description="在上方对话面板点击“复盘当前对话”，报告会显示在这里。"
+                />
+              </div>
+            ) : (
+              <ReviewReportView report={activeReport} />
+            )}
+
+            {revisionPreview && (
+              <div className="bg-muted/20 mt-4 space-y-3 rounded-md border p-3">
+                <p className="text-muted-foreground text-sm leading-6">
+                  {revisionPreview.change_reason}
+                </p>
+                <Textarea
+                  readOnly
+                  className="font-mono text-xs"
+                  rows={8}
+                  value={pretty(revisionPreview.diff)}
+                />
+                <Button
+                  className="w-full"
+                  disabled={busy === "apply-revision"}
+                  onClick={() => void applyRevision()}
+                >
+                  应用画像更新
+                </Button>
+              </div>
+            )}
+          </Panel>
         </div>
       </div>
     </>
@@ -693,7 +679,7 @@ function LoadingBubble({ label }: { label: string }) {
   );
 }
 
-function SelectionColumn({
+function CompactSelection({
   title,
   children,
 }: {
@@ -703,7 +689,36 @@ function SelectionColumn({
   return (
     <div className="min-w-0">
       <div className="mb-2 text-xs font-semibold">{title}</div>
-      <div className="space-y-2">{children}</div>
+      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{children}</div>
+    </div>
+  );
+}
+
+function ReviewReportView({ report }: { report: TrainingReport }) {
+  return (
+    <div className="mt-4 space-y-4">
+      <p className="bg-muted/20 rounded-md border p-4 text-sm leading-6">
+        {report.summary}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-4">
+        {Object.entries(report.report.scores ?? {}).map(([key, value]) => (
+          <div key={key} className="bg-background rounded-md border p-3">
+            <div className="text-muted-foreground truncate text-xs">{key}</div>
+            <div className="mt-1 text-lg font-semibold">{value}/5</div>
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <ReportList title="优势" items={report.report.strengths} />
+        <ReportList title="待改进" items={report.report.weaknesses} />
+        <ReportList title="优秀话术" items={report.report.good_phrases} />
+        <ReportList
+          title="下一轮建议"
+          items={report.report.next_training_advice}
+        />
+        <ReportList title="合规风险" items={report.report.compliance_risks} />
+        <ReportList title="客户反应" items={report.report.customer_reactions} />
+      </div>
     </div>
   );
 }
