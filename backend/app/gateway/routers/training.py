@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/training", tags=["training"])
 RoleType = Literal["customer", "agent"]
 SpeakerType = Literal["customer", "agent"]
 TRAINING_MODEL_TIMEOUT_SECONDS = 600
+TRAINING_REVIEW_TIMEOUT_SECONDS = 3600
 
 
 def _now() -> datetime:
@@ -117,6 +118,8 @@ async def _invoke_json_agent(
 def _role_parse_fallback(role_type: str, name: str, description: str) -> dict[str, Any]:
     tags = ["家庭保障", "低信任"] if role_type == "customer" else ["训练中", "顾问型"]
     return {
+        "name": name,
+        "detected_role_type": role_type,
         "summary": description[:80] or name,
         "structured_profile": {
             "basic_info": {"name": name},
@@ -149,12 +152,126 @@ def _scenario_parse_fallback(name: str, description: str) -> dict[str, Any]:
     }
 
 
+def _split_markdown_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current = "原始描述"
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        header = re.match(r"^(?:#{1,3}\s*)?(?:\*\*)?【?([^】#*]+?)】?(?:\*\*)?$", line)
+        if header and len(header.group(1)) <= 30:
+            current = header.group(1).strip("：: ")
+            sections.setdefault(current, [])
+            continue
+        sections.setdefault(current, []).append(line.lstrip("- "))
+    return {key: "\n".join(value).strip() for key, value in sections.items() if "\n".join(value).strip()}
+
+
+def _extract_named_fields(text: str) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    for key in ["姓名", "性别", "年龄", "学历", "从业年限", "职级", "常住城市", "所属机构", "持证情况"]:
+        match = re.search(rf"{key}\s*[：:]\s*([^/\n。；;]+)", text)
+        if match:
+            fields[key] = match.group(1).strip()
+    return fields
+
+
+def _extract_bullets(text: str) -> list[str]:
+    values: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("-", "•")):
+            values.append(stripped.lstrip("-• ").strip())
+        elif "。-" in stripped:
+            values.extend(part.strip() for part in stripped.split("-") if part.strip())
+    return [value for value in values if value]
+
+
+def _local_role_parse_hints(role_type: str, name: str, description: str) -> dict[str, Any]:
+    sections = _split_markdown_sections(description)
+    basic_text = sections.get("基础信息", "")
+    fields = _extract_named_fields(basic_text or description)
+    parsed_name = str(fields.get("姓名") or name).split("/")[0].strip() or name
+    detected_role_type = role_type
+    if re.search(r"(规划师|代理人|顾问|客户经理|MDRT|HWP|合伙人)", description):
+        detected_role_type = "agent"
+    elif re.search(r"(客户|投保人|家庭|异议|预算|理赔顾虑)", description):
+        detected_role_type = "customer"
+
+    structured_profile = {
+        "basic_info": fields,
+        "appearance_and_temperament": sections.get("外貌与气质", ""),
+        "personality": sections.get("性格特征", ""),
+        "education_and_career": sections.get("教育背景与职业经历", ""),
+        "professional_capabilities": sections.get("专业能力与知识结构", ""),
+        "service_philosophy": sections.get("工作理念与服务哲学", ""),
+        "behavior_patterns": sections.get("典型工作场景与行为模式", ""),
+        "communication_style": sections.get("语言风格与沟通方式", ""),
+        "values_and_motivation": sections.get("价值观与内在驱动", ""),
+        "signature_lines": _extract_bullets(sections.get("人设金句", "")),
+        "raw_sections": sections,
+    }
+    identity_parts = [
+        str(fields.get("所属机构") or "").strip(),
+        re.sub(r"[·,，].*$", "", str(fields.get("职级") or "")).strip(),
+    ]
+    identity = " ".join(part for part in identity_parts if part).strip()
+    summary = f"{parsed_name}，{identity or '保险销售训练角色'}。{sections.get('工作理念与服务哲学') or sections.get('性格特征') or description[:120]}"
+    return {
+        "name": parsed_name,
+        "detected_role_type": detected_role_type,
+        "summary": summary[:240],
+        "structured_profile": structured_profile,
+        "tags": [
+            tag
+            for tag in [
+                "HWP" if "HWP" in description else "",
+                "健康财富规划师" if "健康财富规划师" in description else "",
+                "高净值客户服务" if "高净值" in description else "",
+                "医养规划" if "医养" in description else "",
+                "咨询式销售" if "先诊断" in description or "咨询式" in description else "",
+            ]
+            if tag
+        ],
+        "missing_fields": [],
+        "suggestions": [],
+    }
+
+
+def _merge_parse_result(ai_result: dict[str, Any], local_hints: dict[str, Any]) -> dict[str, Any]:
+    structured = ai_result.get("structured_profile") if isinstance(ai_result.get("structured_profile"), dict) else {}
+    local_structured = local_hints.get("structured_profile") if isinstance(local_hints.get("structured_profile"), dict) else {}
+    tags = [
+        *[str(tag) for tag in local_hints.get("tags", []) if tag],
+        *[str(tag) for tag in ai_result.get("tags", []) if tag],
+    ]
+    return {
+        **ai_result,
+        "name": ai_result.get("name") or local_hints.get("name"),
+        "detected_role_type": ai_result.get("detected_role_type") or local_hints.get("detected_role_type"),
+        "summary": local_hints.get("summary") or ai_result.get("summary") or "",
+        "structured_profile": {**local_structured, **structured},
+        "tags": list(dict.fromkeys(tags)),
+        "local_parse": local_hints,
+    }
+
+
 ROLE_PARSE_PROMPT = """你是保险销售训练系统的角色解析 Agent。请把用户输入拆解成结构化角色画像。
 只输出 JSON，不要输出 markdown。
 字段：
-summary, structured_profile, tags, missing_fields, suggestions。
-customer 画像包含 basic_info, insurance_context, personality, communication_style, objections, triggers。
-agent 画像包含 basic_info, sales_style, capabilities, weaknesses, training_goals, compliance_risks。
+name, detected_role_type, summary, structured_profile, tags, missing_fields, suggestions。
+如果文本描述的是保险代理人、HWP、健康财富规划师、理财顾问或客户经理，detected_role_type 应为 agent。
+如果文本描述的是投保客户、家庭客户、高净值客户、犹豫客户或异议客户，detected_role_type 应为 customer。
+agent 画像必须尽量保留这些维度：
+basic_info, appearance_and_temperament, personality, education_and_career,
+professional_capabilities, service_philosophy, behavior_patterns,
+communication_style, values_and_motivation, signature_lines, sales_style,
+capabilities, weaknesses, training_goals, compliance_risks。
+customer 画像必须尽量保留这些维度：
+basic_info, family_context, financial_context, insurance_context, personality,
+communication_style, objections, triggers, decision_process, trust_barriers。
+不要把高密度人物稿压缩成一个性格标签。必须保留姓名、机构、职级、证照、工作理念、语言风格、行为模式和金句。
 不要编造过度具体的隐私信息，无法判断的字段留空或放入 missing_fields。"""
 
 SCENARIO_PARSE_PROMPT = """你是保险销售训练系统的场景解析 Agent。请把用户输入拆解成结构化销售训练场景。
@@ -516,11 +633,13 @@ async def _human_agent_turn(
 @router.post("/roles/parse")
 async def parse_role(body: ParseRoleRequest, request: Request) -> dict[str, Any]:
     get_config(request)
-    return await _invoke_json_agent(
+    local_hints = _local_role_parse_hints(body.role_type, body.name, body.description)
+    ai_result = await _invoke_json_agent(
         ROLE_PARSE_PROMPT,
-        body.model_dump(),
+        {**body.model_dump(), "local_parse_hints": local_hints},
         _role_parse_fallback(body.role_type, body.name, body.description),
     )
+    return _merge_parse_result(ai_result, local_hints)
 
 
 @router.post("/roles")
@@ -798,6 +917,7 @@ async def create_review(session_id: str, request: Request) -> dict[str, Any]:
                 "messages": [_row_dict(message) for message in messages],
             },
             fallback,
+            timeout_seconds=TRAINING_REVIEW_TIMEOUT_SECONDS,
         )
         report = ReviewReportRow(
             id=_new_id("report"),

@@ -4,11 +4,17 @@ import { getBackendBaseURL } from "@/core/config";
 const base = () => `${getBackendBaseURL()}/api/training`;
 const TRAINING_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { timeoutMs?: number | null },
+): Promise<T> {
   const controller = init?.signal ? null : new AbortController();
-  const timeoutId = controller
-    ? window.setTimeout(() => controller.abort(), TRAINING_REQUEST_TIMEOUT_MS)
-    : null;
+  const timeoutMs = options?.timeoutMs ?? TRAINING_REQUEST_TIMEOUT_MS;
+  const timeoutId =
+    controller && timeoutMs
+      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      : null;
   try {
     const res = await fetch(`${base()}${path}`, {
       ...init,
@@ -121,6 +127,8 @@ export const trainingApi = {
     basic_fields?: Record<string, unknown>;
   }) =>
     request<{
+      name?: string;
+      detected_role_type?: TrainingRoleType;
       summary: string;
       structured_profile: Record<string, unknown>;
       tags: string[];
@@ -192,7 +200,11 @@ export const trainingApi = {
   getSimulation: (id: string) =>
     request<TrainingSimulation>(`/simulations/${id}`),
   createReview: (id: string) =>
-    request<TrainingReport>(`/simulations/${id}/review`, { method: "POST" }),
+    request<TrainingReport>(
+      `/simulations/${id}/review`,
+      { method: "POST" },
+      { timeoutMs: null },
+    ),
   revisionPreview: (
     reportId: string,
     body: {

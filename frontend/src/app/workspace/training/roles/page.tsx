@@ -86,6 +86,23 @@ export default function TrainingRolesPage() {
         name: roleName,
         description: roleDescription,
       });
+      if (parsed.name) setRoleName(parsed.name);
+      if (
+        parsed.detected_role_type &&
+        parsed.detected_role_type !== activeRoleType
+      ) {
+        setActiveRoleType(parsed.detected_role_type);
+        setAvatarUrl(
+          parsed.detected_role_type === "customer"
+            ? (avatarUrls[0] ?? "")
+            : (avatarUrls[5] ?? ""),
+        );
+        toast.info(
+          parsed.detected_role_type === "agent"
+            ? "已识别为代理人/规划师画像。"
+            : "已识别为客户画像。",
+        );
+      }
       setRoleSummary(parsed.summary ?? "");
       setRoleTags((parsed.tags ?? []).join("，"));
       setRoleProfileJson(pretty(parsed.structured_profile));
