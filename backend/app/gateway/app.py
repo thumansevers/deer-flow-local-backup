@@ -26,6 +26,7 @@ from app.gateway.routers import (
     suggestions,
     thread_runs,
     threads,
+    training,
     uploads,
 )
 from deerflow.config import app_config as deerflow_app_config
@@ -372,6 +373,9 @@ This gateway provides custom endpoints for models, MCP configuration, skills, an
 
     # Stateless Runs API (stream/wait without a pre-existing thread)
     app.include_router(runs.router)
+
+    # Insurance sales training MVP API
+    app.include_router(training.router)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict:

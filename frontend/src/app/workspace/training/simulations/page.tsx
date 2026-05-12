@@ -1,0 +1,522 @@
+"use client";
+
+import {
+  BadgeCheckIcon,
+  BotIcon,
+  Clock3Icon,
+  FileTextIcon,
+  MessageSquareTextIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  SparklesIcon,
+  UserRoundIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  trainingApi,
+  type RevisionPreview,
+  type TrainingReport,
+  type TrainingRole,
+  type TrainingRoleType,
+  type TrainingScenario,
+  type TrainingSimulation,
+} from "@/core/training/api";
+import { cn } from "@/lib/utils";
+
+import {
+  EmptyState,
+  MetricTile,
+  PageHeader,
+  Panel,
+  pretty,
+  ReportList,
+  RoleCard,
+  ScenarioCard,
+  SectionTitle,
+  SelectedLine,
+  showError,
+} from "../training-components";
+
+export default function TrainingSimulationsPage() {
+  const [roles, setRoles] = useState<TrainingRole[]>([]);
+  const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
+  const [simulations, setSimulations] = useState<TrainingSimulation[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [selectedScenarioId, setSelectedScenarioId] = useState("");
+  const [maxTurns, setMaxTurns] = useState(8);
+  const [activeSimulation, setActiveSimulation] =
+    useState<TrainingSimulation | null>(null);
+  const [activeReport, setActiveReport] = useState<TrainingReport | null>(null);
+  const [revisionPreview, setRevisionPreview] =
+    useState<RevisionPreview | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const customers = useMemo(
+    () => roles.filter((role) => role.role_type === "customer"),
+    [roles],
+  );
+  const agents = useMemo(
+    () => roles.filter((role) => role.role_type === "agent"),
+    [roles],
+  );
+  const selectedCustomer = roles.find((role) => role.id === selectedCustomerId);
+  const selectedAgent = roles.find((role) => role.id === selectedAgentId);
+  const selectedScenario = scenarios.find(
+    (scenario) => scenario.id === selectedScenarioId,
+  );
+
+  async function reload() {
+    const [nextRoles, nextScenarios, nextSimulations] = await Promise.all([
+      trainingApi.roles(),
+      trainingApi.scenarios(),
+      trainingApi.simulations(),
+    ]);
+    setRoles(nextRoles);
+    setScenarios(nextScenarios);
+    setSimulations(nextSimulations);
+    setSelectedCustomerId((current) =>
+      current
+        ? current
+        : (nextRoles.find((role) => role.role_type === "customer")?.id ?? ""),
+    );
+    setSelectedAgentId((current) =>
+      current
+        ? current
+        : (nextRoles.find((role) => role.role_type === "agent")?.id ?? ""),
+    );
+    setSelectedScenarioId((current) =>
+      current ? current : (nextScenarios[0]?.id ?? ""),
+    );
+  }
+
+  useEffect(() => {
+    document.title = "模拟对练 - DeerFlow";
+    void reload().catch(showError);
+  }, []);
+
+  async function runSimulation() {
+    if (!selectedCustomerId || !selectedAgentId || !selectedScenarioId) {
+      toast.error("请先选择客户、代理人和场景。");
+      return;
+    }
+    setBusy("run-simulation");
+    setActiveReport(null);
+    setRevisionPreview(null);
+    try {
+      const session = await trainingApi.createSimulation({
+        customer_role_id: selectedCustomerId,
+        agent_role_id: selectedAgentId,
+        scenario_id: selectedScenarioId,
+        max_turns: maxTurns,
+      });
+      await trainingApi.runSimulation(session.id);
+      setActiveSimulation(await trainingApi.getSimulation(session.id));
+      toast.success("模拟对练已完成");
+      await reload();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createReview() {
+    if (!activeSimulation) return;
+    setBusy("review");
+    try {
+      const report = await trainingApi.createReview(activeSimulation.id);
+      setActiveReport(report);
+      setActiveSimulation(await trainingApi.getSimulation(activeSimulation.id));
+      toast.success("复盘报告已生成");
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function previewRevision(roleType: TrainingRoleType) {
+    if (!activeReport) return;
+    const roleId =
+      roleType === "customer" ? selectedCustomerId : selectedAgentId;
+    setBusy(`preview-${roleType}`);
+    try {
+      setRevisionPreview(
+        await trainingApi.revisionPreview(activeReport.id, {
+          role_id: roleId,
+          revision_type:
+            roleType === "customer" ? "customer_refinement" : "agent_upgrade",
+        }),
+      );
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function applyRevision() {
+    if (!revisionPreview || !activeReport || !activeSimulation) return;
+    setBusy("apply-revision");
+    try {
+      await trainingApi.applyRevision({
+        role_id: revisionPreview.role_id,
+        source_session_id: activeSimulation.id,
+        source_report_id: activeReport.id,
+        change_type: "review_suggestion",
+        before: revisionPreview.before,
+        after: revisionPreview.after,
+        diff: revisionPreview.diff,
+      });
+      toast.success("画像建议已应用");
+      setRevisionPreview(null);
+      await reload();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        icon={PlayIcon}
+        title="模拟对练"
+        description="选择客户、代理人和场景后，后端 Orchestrator 自动轮流生成对话，并基于对话生成复盘和画像更新建议。"
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void reload().catch(showError)}
+        >
+          <RefreshCwIcon className="size-4" />
+          刷新
+        </Button>
+      </PageHeader>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricTile
+          icon={UserRoundIcon}
+          label="客户"
+          value={customers.length}
+        />
+        <MetricTile icon={BotIcon} label="代理人" value={agents.length} />
+        <MetricTile icon={FileTextIcon} label="场景" value={scenarios.length} />
+        <MetricTile
+          icon={Clock3Icon}
+          label="最近对练"
+          value={simulations.length}
+        />
+      </div>
+
+      <div className="grid items-start gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="space-y-5">
+          <Panel>
+            <SectionTitle
+              icon={PlayIcon}
+              title="训练控制台"
+              description="确认组合和轮数后开始自动对练。"
+            />
+            <div className="mt-4 grid gap-3">
+              <SelectedLine label="客户" value={selectedCustomer?.name} />
+              <SelectedLine label="代理人" value={selectedAgent?.name} />
+              <SelectedLine label="场景" value={selectedScenario?.name} />
+              <label className="block space-y-1.5">
+                <span className="text-muted-foreground text-xs font-medium">
+                  对话轮数
+                </span>
+                <Input
+                  type="number"
+                  min={2}
+                  max={20}
+                  value={maxTurns}
+                  onChange={(event) => setMaxTurns(Number(event.target.value))}
+                />
+              </label>
+              <Button
+                className="w-full"
+                disabled={busy === "run-simulation"}
+                onClick={() => void runSimulation()}
+              >
+                <PlayIcon className="size-4" />
+                开始自动对练
+              </Button>
+              <Button
+                className="w-full"
+                variant="outline"
+                disabled={!activeSimulation || busy === "review"}
+                onClick={() => void createReview()}
+              >
+                <BadgeCheckIcon className="size-4" />
+                生成复盘报告
+              </Button>
+            </div>
+          </Panel>
+
+          <Panel>
+            <SectionTitle
+              icon={Clock3Icon}
+              title="最近对练"
+              description="点击历史记录可回看对话。"
+            />
+            <div className="mt-4 space-y-1.5">
+              {simulations.length ? (
+                simulations.slice(0, 8).map((simulation) => (
+                  <button
+                    type="button"
+                    key={simulation.id}
+                    className="hover:bg-muted flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-xs"
+                    onClick={() =>
+                      void trainingApi
+                        .getSimulation(simulation.id)
+                        .then(setActiveSimulation)
+                        .catch(showError)
+                    }
+                  >
+                    <span>{simulation.status}</span>
+                    <span className="text-muted-foreground">
+                      {simulation.current_turn}/{simulation.max_turns}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <EmptyState
+                  icon={Clock3Icon}
+                  title="暂无对练记录"
+                  description="开始第一轮训练后，这里会显示最近记录。"
+                />
+              )}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="space-y-5">
+          <Panel>
+            <SectionTitle
+              icon={MessageSquareTextIcon}
+              title="角色与场景选择"
+              description="选择项会同步到左侧训练控制台。"
+            />
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <SelectionColumn title="客户角色">
+                {customers.length ? (
+                  customers.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedCustomerId === role.id}
+                      onClick={() => setSelectedCustomerId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={UserRoundIcon}
+                    title="没有客户角色"
+                    description="请先到角色工厂创建客户。"
+                  />
+                )}
+              </SelectionColumn>
+              <SelectionColumn title="代理人角色">
+                {agents.length ? (
+                  agents.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedAgentId === role.id}
+                      onClick={() => setSelectedAgentId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={BotIcon}
+                    title="没有代理人角色"
+                    description="请先到角色工厂创建代理人。"
+                  />
+                )}
+              </SelectionColumn>
+              <SelectionColumn title="销售场景">
+                {scenarios.length ? (
+                  scenarios.map((scenario) => (
+                    <ScenarioCard
+                      key={scenario.id}
+                      scenario={scenario}
+                      active={selectedScenarioId === scenario.id}
+                      onClick={() => setSelectedScenarioId(scenario.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={FileTextIcon}
+                    title="没有训练场景"
+                    description="请先到场景工厂创建场景。"
+                  />
+                )}
+              </SelectionColumn>
+            </div>
+          </Panel>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <Panel>
+              <SectionTitle
+                icon={MessageSquareTextIcon}
+                title="对话过程"
+                description="每条消息保存后可回看，用于复盘和画像修订。"
+              />
+              <div className="mt-4 min-h-[360px] space-y-3">
+                {activeSimulation?.messages?.length ? (
+                  activeSimulation.messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "flex",
+                        message.speaker_type === "agent" && "justify-end",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "max-w-[82%] rounded-md px-3 py-2 text-sm leading-6",
+                          message.speaker_type === "customer"
+                            ? "bg-muted"
+                            : "bg-primary text-primary-foreground",
+                        )}
+                      >
+                        <div className="mb-1 text-xs opacity-70">
+                          {message.speaker_type === "customer"
+                            ? "客户"
+                            : "代理人"}{" "}
+                          · 第 {message.turn_index} 句
+                        </div>
+                        {message.content}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={MessageSquareTextIcon}
+                    title="还没有对话"
+                    description="选择角色和场景后开始自动对练。"
+                  />
+                )}
+              </div>
+            </Panel>
+
+            <Panel>
+              <SectionTitle
+                icon={BadgeCheckIcon}
+                title="复盘与画像修订"
+                description="AI 只生成建议，确认后才写入新版本。"
+              />
+              {!activeReport ? (
+                <div className="mt-4">
+                  <EmptyState
+                    icon={BadgeCheckIcon}
+                    title="暂无复盘报告"
+                    description="对练完成后点击生成复盘报告。"
+                  />
+                </div>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <p className="text-sm leading-6">{activeReport.summary}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(activeReport.report.scores ?? {}).map(
+                      ([key, value]) => (
+                        <div key={key} className="rounded-md border p-2">
+                          <div className="text-muted-foreground truncate text-xs">
+                            {key}
+                          </div>
+                          <div className="text-lg font-semibold">{value}/5</div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                  <ReportList
+                    title="优势"
+                    items={activeReport.report.strengths}
+                  />
+                  <ReportList
+                    title="待改进"
+                    items={activeReport.report.weaknesses}
+                  />
+                  <ReportList
+                    title="优秀话术"
+                    items={activeReport.report.good_phrases}
+                  />
+                  <ReportList
+                    title="下一轮建议"
+                    items={activeReport.report.next_training_advice}
+                  />
+                  <ReportList
+                    title="合规风险"
+                    items={activeReport.report.compliance_risks}
+                  />
+
+                  <div className="grid gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={busy === "preview-customer"}
+                      onClick={() => void previewRevision("customer")}
+                    >
+                      <SparklesIcon className="size-4" />
+                      预览客户画像建议
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={busy === "preview-agent"}
+                      onClick={() => void previewRevision("agent")}
+                    >
+                      <SparklesIcon className="size-4" />
+                      预览代理人升级建议
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {revisionPreview && (
+                <div className="bg-muted/20 mt-4 space-y-3 rounded-md border p-3">
+                  <p className="text-muted-foreground text-sm leading-6">
+                    {revisionPreview.change_reason}
+                  </p>
+                  <Textarea
+                    readOnly
+                    className="font-mono text-xs"
+                    rows={8}
+                    value={pretty(revisionPreview.diff)}
+                  />
+                  <Button
+                    className="w-full"
+                    disabled={busy === "apply-revision"}
+                    onClick={() => void applyRevision()}
+                  >
+                    应用画像更新
+                  </Button>
+                </div>
+              )}
+            </Panel>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function SelectionColumn({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 text-xs font-semibold">{title}</div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}

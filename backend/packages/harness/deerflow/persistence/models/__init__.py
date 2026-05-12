@@ -18,6 +18,26 @@ from deerflow.persistence.feedback.model import FeedbackRow
 from deerflow.persistence.models.run_event import RunEventRow
 from deerflow.persistence.run.model import RunRow
 from deerflow.persistence.thread_meta.model import ThreadMetaRow
+from deerflow.persistence.training import (
+    ProfileRevisionRow,
+    ReviewReportRow,
+    RoleProfileRow,
+    ScenarioProfileRow,
+    SimulationMessageRow,
+    SimulationSessionRow,
+)
 from deerflow.persistence.user.model import UserRow
 
-__all__ = ["FeedbackRow", "RunEventRow", "RunRow", "ThreadMetaRow", "UserRow"]
+__all__ = [
+    "FeedbackRow",
+    "ProfileRevisionRow",
+    "ReviewReportRow",
+    "RoleProfileRow",
+    "RunEventRow",
+    "RunRow",
+    "ScenarioProfileRow",
+    "SimulationMessageRow",
+    "SimulationSessionRow",
+    "ThreadMetaRow",
+    "UserRow",
+]
