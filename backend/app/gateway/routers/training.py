@@ -82,6 +82,7 @@ async def _invoke_json_agent(
     user_payload: dict[str, Any],
     fallback: dict[str, Any],
     *,
+    model_name: str | None = None,
     timeout_seconds: int = TRAINING_MODEL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Invoke the configured DeerFlow chat model and parse a JSON object.
@@ -92,7 +93,7 @@ async def _invoke_json_agent(
     """
 
     try:
-        model = create_chat_model(thinking_enabled=False)
+        model = create_chat_model(name=model_name, thinking_enabled=False)
         response = await asyncio.wait_for(
             model.ainvoke(
                 [
@@ -424,6 +425,7 @@ class ParseRoleRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     basic_fields: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(default="", max_length=50000)
+    model_name: str | None = Field(default=None, max_length=200)
 
 
 class RoleUpsertRequest(BaseModel):
@@ -440,6 +442,7 @@ class ParseScenarioRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     basic_fields: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(default="", max_length=50000)
+    model_name: str | None = Field(default=None, max_length=200)
 
 
 class ScenarioUpsertRequest(BaseModel):
@@ -463,6 +466,7 @@ class SimulationCreateRequest(BaseModel):
     agent_role_id: str
     scenario_id: str
     max_turns: int = 8
+    model_name: str | None = Field(default=None, max_length=200)
 
     @field_validator("max_turns")
     @classmethod
@@ -472,10 +476,16 @@ class SimulationCreateRequest(BaseModel):
 
 class SimulationRunRequest(BaseModel):
     mode: Literal["auto"] = "auto"
+    model_name: str | None = Field(default=None, max_length=200)
 
 
 class HumanTurnRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
+    model_name: str | None = Field(default=None, max_length=200)
+
+
+class ModelOverrideRequest(BaseModel):
+    model_name: str | None = Field(default=None, max_length=200)
 
 
 class RevisionPreviewRequest(BaseModel):
@@ -644,6 +654,7 @@ async def _generate_dialogue(
     agent: RoleProfileRow,
     scenario: ScenarioProfileRow,
     messages: list[SimulationMessageRow],
+    model_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     fallback_text = "我想先了解一下具体情况。" if speaker == "customer" else "我先了解您的顾虑，再看是否有合适的保障思路。"
     fallback = {"content": fallback_text}
@@ -657,6 +668,7 @@ async def _generate_dialogue(
             messages=messages,
         ),
         fallback,
+        model_name=model_name,
     )
     content = parsed.get("content")
     if not isinstance(content, str) or not content.strip():
@@ -669,6 +681,7 @@ async def _next_turn(
     session_row: SimulationSessionRow,
     user_id: str | None,
     speaker_override: SpeakerType | None = None,
+    model_name: str | None = None,
 ) -> SimulationMessageRow:
     customer = await _get_role(session_db, session_row.customer_role_id, user_id)
     agent = await _get_role(session_db, session_row.agent_role_id, user_id)
@@ -681,6 +694,7 @@ async def _next_turn(
         agent=agent,
         scenario=scenario,
         messages=messages,
+        model_name=model_name,
     )
     message = SimulationMessageRow(
         id=_new_id("msg"),
@@ -708,6 +722,7 @@ async def _human_agent_turn(
     session_row: SimulationSessionRow,
     user_id: str | None,
     content: str,
+    model_name: str | None = None,
 ) -> tuple[SimulationMessageRow, SimulationMessageRow | None]:
     if session_row.status in {"ended", "completed"}:
         raise HTTPException(status_code=400, detail="Simulation is already ended")
@@ -734,7 +749,7 @@ async def _human_agent_turn(
         session_row.ended_at = _now()
         return human_message, None
 
-    customer_message = await _next_turn(session_db, session_row, user_id, speaker_override="customer")
+    customer_message = await _next_turn(session_db, session_row, user_id, speaker_override="customer", model_name=model_name)
     return human_message, customer_message
 
 
@@ -746,6 +761,7 @@ async def parse_role(body: ParseRoleRequest, request: Request) -> dict[str, Any]
         ROLE_PARSE_PROMPT,
         {**body.model_dump(), "local_parse_hints": local_hints},
         _role_parse_fallback(body.role_type, body.name, body.description),
+        model_name=body.model_name,
     )
     return _merge_parse_result(ai_result, local_hints)
 
@@ -838,6 +854,7 @@ async def parse_scenario(body: ParseScenarioRequest, request: Request) -> dict[s
         SCENARIO_PARSE_PROMPT,
         body.model_dump(),
         _scenario_parse_fallback(body.name, body.description),
+        model_name=body.model_name,
     )
 
 
@@ -945,13 +962,13 @@ async def get_simulation_messages(session_id: str, request: Request) -> list[dic
 
 
 @router.post("/simulations/{session_id}/next-turn")
-async def next_turn(session_id: str, request: Request) -> dict[str, Any]:
+async def next_turn(session_id: str, request: Request, body: ModelOverrideRequest | None = None) -> dict[str, Any]:
     user_id = await _user_id(request)
     async with _session_factory()() as session:
         row = await _get_session_row(session, session_id, user_id)
         if row.status in {"ended", "completed"}:
             raise HTTPException(status_code=400, detail="Simulation is already ended")
-        message = await _next_turn(session, row, user_id)
+        message = await _next_turn(session, row, user_id, model_name=body.model_name if body else None)
         await session.commit()
         await session.refresh(row)
         return {"message": _row_dict(message), "session_status": row.status, "session": _row_dict(row)}
@@ -962,7 +979,7 @@ async def human_turn(session_id: str, body: HumanTurnRequest, request: Request) 
     user_id = await _user_id(request)
     async with _session_factory()() as session:
         row = await _get_session_row(session, session_id, user_id)
-        human_message, customer_message = await _human_agent_turn(session, row, user_id, body.content)
+        human_message, customer_message = await _human_agent_turn(session, row, user_id, body.content, model_name=body.model_name)
         await session.commit()
         await session.refresh(row)
         return {
@@ -979,7 +996,7 @@ async def run_simulation(session_id: str, body: SimulationRunRequest, request: R
     async with _session_factory()() as session:
         row = await _get_session_row(session, session_id, user_id)
         while row.current_turn < row.max_turns and row.status not in {"ended", "completed"}:
-            await _next_turn(session, row, user_id)
+            await _next_turn(session, row, user_id, model_name=body.model_name)
             await session.flush()
         row.status = "ended"
         row.ended_at = row.ended_at or _now()
@@ -991,7 +1008,7 @@ async def run_simulation(session_id: str, body: SimulationRunRequest, request: R
 
 
 @router.post("/simulations/{session_id}/review")
-async def create_review(session_id: str, request: Request) -> dict[str, Any]:
+async def create_review(session_id: str, request: Request, body: ModelOverrideRequest | None = None) -> dict[str, Any]:
     user_id = await _user_id(request)
     async with _session_factory()() as session:
         row = await _get_session_row(session, session_id, user_id)
@@ -1025,6 +1042,7 @@ async def create_review(session_id: str, request: Request) -> dict[str, Any]:
                 "messages": [_row_dict(message) for message in messages],
             },
             fallback,
+            model_name=body.model_name if body else None,
             timeout_seconds=TRAINING_REVIEW_TIMEOUT_SECONDS,
         )
         report = ReviewReportRow(

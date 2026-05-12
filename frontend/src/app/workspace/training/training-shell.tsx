@@ -3,6 +3,7 @@
 import {
   FileTextIcon,
   PlayIcon,
+  SettingsIcon,
   ShieldCheckIcon,
   UserRoundIcon,
 } from "lucide-react";
@@ -36,6 +37,12 @@ const navItems = [
     label: "模拟对练",
     description: "对话、复盘、画像更新",
     icon: PlayIcon,
+  },
+  {
+    href: "/workspace/training/settings",
+    label: "模型设置",
+    description: "DeerFlow 与训练模型",
+    icon: SettingsIcon,
   },
 ] as const;
 

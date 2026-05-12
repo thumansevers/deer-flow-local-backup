@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useLocalSettings } from "@/core/settings";
 import {
   trainingApi,
   type RevisionPreview,
@@ -45,6 +46,7 @@ import {
 } from "../training-components";
 
 export default function TrainingSimulationsPage() {
+  const [settings] = useLocalSettings();
   const [roles, setRoles] = useState<TrainingRole[]>([]);
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
   const [simulations, setSimulations] = useState<TrainingSimulation[]>([]);
@@ -142,6 +144,7 @@ export default function TrainingSimulationsPage() {
       agent_role_id: selectedAgentId,
       scenario_id: selectedScenarioId,
       max_turns: maxTurns,
+      model_name: settings.training.model_name,
     });
   }
 
@@ -156,7 +159,10 @@ export default function TrainingSimulationsPage() {
 
       let currentSession = session;
       for (let index = 0; index < maxTurns; index += 1) {
-        const result = await trainingApi.nextTurn(currentSession.id);
+        const result = await trainingApi.nextTurn(
+          currentSession.id,
+          settings.training.model_name,
+        );
         appendMessages(result.session, [result.message]);
         currentSession = result.session;
         if (result.session_status === "ended") break;
@@ -196,7 +202,11 @@ export default function TrainingSimulationsPage() {
       };
       appendMessages(session, [pendingMessage]);
 
-      const result = await trainingApi.humanTurn(session.id, content);
+      const result = await trainingApi.humanTurn(
+        session.id,
+        content,
+        settings.training.model_name,
+      );
       replacePendingMessage(result.session, pendingId, [
         result.human_message,
         ...(result.customer_message ? [result.customer_message] : []),
@@ -224,7 +234,10 @@ export default function TrainingSimulationsPage() {
     if (!activeSimulation) return;
     setBusy("review");
     try {
-      const report = await trainingApi.createReview(activeSimulation.id);
+      const report = await trainingApi.createReview(
+        activeSimulation.id,
+        settings.training.model_name,
+      );
       setActiveReport(report);
       setActiveSimulation(await trainingApi.getSimulation(activeSimulation.id));
       toast.success("复盘报告已生成");

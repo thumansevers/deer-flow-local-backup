@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useLocalSettings } from "@/core/settings";
 import {
   trainingApi,
   type TrainingRole,
@@ -38,6 +39,7 @@ import {
 } from "../training-components";
 
 export default function TrainingRolesPage() {
+  const [settings] = useLocalSettings();
   const [roles, setRoles] = useState<TrainingRole[]>([]);
   const [activeRoleType, setActiveRoleType] =
     useState<TrainingRoleType>("customer");
@@ -86,6 +88,7 @@ export default function TrainingRolesPage() {
         role_type: activeRoleType,
         name: roleName,
         description: roleDescription,
+        model_name: settings.training.model_name,
       });
       if (parsed.name) setRoleName(parsed.name);
       if (

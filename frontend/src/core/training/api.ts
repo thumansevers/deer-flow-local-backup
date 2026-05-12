@@ -126,6 +126,7 @@ export const trainingApi = {
     name: string;
     description: string;
     basic_fields?: Record<string, unknown>;
+    model_name?: string;
   }) =>
     request<{
       name?: string;
@@ -149,6 +150,7 @@ export const trainingApi = {
     name: string;
     description: string;
     basic_fields?: Record<string, unknown>;
+    model_name?: string;
   }) =>
     request<{
       summary: string;
@@ -172,27 +174,31 @@ export const trainingApi = {
     agent_role_id: string;
     scenario_id: string;
     max_turns: number;
+    model_name?: string;
   }) =>
     request<TrainingSimulation>("/simulations", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runSimulation: (id: string) =>
+  runSimulation: (id: string, modelName?: string) =>
     request<{
       session_id: string;
       status: string;
       messages: TrainingMessage[];
     }>(`/simulations/${id}/run`, {
       method: "POST",
-      body: JSON.stringify({ mode: "auto" }),
+      body: JSON.stringify({ mode: "auto", model_name: modelName }),
     }),
-  nextTurn: (id: string) =>
+  nextTurn: (id: string, modelName?: string) =>
     request<{
       message: TrainingMessage;
       session_status: string;
       session: TrainingSimulation;
-    }>(`/simulations/${id}/next-turn`, { method: "POST" }),
-  humanTurn: (id: string, content: string) =>
+    }>(`/simulations/${id}/next-turn`, {
+      method: "POST",
+      body: JSON.stringify({ model_name: modelName }),
+    }),
+  humanTurn: (id: string, content: string, modelName?: string) =>
     request<{
       human_message: TrainingMessage;
       customer_message: TrainingMessage | null;
@@ -200,14 +206,14 @@ export const trainingApi = {
       session: TrainingSimulation;
     }>(`/simulations/${id}/human-turn`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, model_name: modelName }),
     }),
   getSimulation: (id: string) =>
     request<TrainingSimulation>(`/simulations/${id}`),
-  createReview: (id: string) =>
+  createReview: (id: string, modelName?: string) =>
     request<TrainingReport>(
       `/simulations/${id}/review`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ model_name: modelName }) },
       { timeoutMs: null },
     ),
   revisionPreview: (

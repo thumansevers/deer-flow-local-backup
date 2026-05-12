@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useLocalSettings } from "@/core/settings";
 import { trainingApi, type TrainingScenario } from "@/core/training/api";
 
 import {
@@ -31,6 +32,7 @@ import {
 } from "../training-components";
 
 export default function TrainingScenariosPage() {
+  const [settings] = useLocalSettings();
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
   const [scenarioName, setScenarioName] = useState("首次接触低信任客户");
   const [scenarioDescription, setScenarioDescription] =
@@ -60,6 +62,7 @@ export default function TrainingScenariosPage() {
       const parsed = await trainingApi.parseScenario({
         name: scenarioName,
         description: scenarioDescription,
+        model_name: settings.training.model_name,
       });
       setScenarioMeta({
         summary: parsed.summary ?? "",
