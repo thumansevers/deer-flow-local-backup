@@ -1,7 +1,8 @@
 import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
-const base = () => `${getBackendBaseURL()}/api/training`;
+const base = () =>
+  getBackendBaseURL() ? `${getBackendBaseURL()}/api/training` : "/training-api";
 const TRAINING_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function request<T>(
