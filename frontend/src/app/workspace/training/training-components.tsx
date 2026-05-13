@@ -122,7 +122,9 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn("bg-background rounded-lg border p-4", className)}>
+    <section
+      className={cn("bg-background min-w-0 rounded-lg border p-4", className)}
+    >
       {children}
     </section>
   );
@@ -495,9 +497,9 @@ export function SelectedLine({
   value?: string;
 }) {
   return (
-    <div className="bg-muted/20 rounded-md border p-3">
+    <div className="bg-muted/20 min-w-0 overflow-hidden rounded-md border p-3">
       <div className="text-muted-foreground text-xs">{label}</div>
-      <div className="mt-1 truncate text-sm font-medium">
+      <div className="mt-1 min-w-0 truncate text-sm font-medium">
         {value ?? "未选择"}
       </div>
     </div>

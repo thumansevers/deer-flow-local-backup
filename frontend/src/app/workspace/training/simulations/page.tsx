@@ -324,23 +324,23 @@ export default function TrainingSimulationsPage() {
         />
       </div>
 
-      <div className="grid items-start gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="space-y-5 2xl:sticky 2xl:top-4">
+      <div className="grid min-w-0 items-start gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-5 2xl:sticky 2xl:top-4">
           <Panel>
             <SectionTitle
               icon={PlayIcon}
               title="训练控制台"
               description="手动模式由你扮演代理人；自动模式用于快速生成样例对话。"
             />
-            <div className="mt-4 grid gap-3">
-              <div className="bg-muted/20 grid grid-cols-2 gap-2 rounded-md border p-1">
+            <div className="mt-4 grid min-w-0 gap-3">
+              <div className="bg-muted/20 grid min-w-0 grid-cols-2 gap-2 rounded-md border p-1">
                 {(["manual", "auto"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => setPracticeMode(mode)}
                     className={cn(
-                      "rounded px-3 py-2 text-xs font-medium transition-colors",
+                      "min-w-0 truncate rounded px-3 py-2 text-xs font-medium transition-colors",
                       practiceMode === mode
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
@@ -353,7 +353,7 @@ export default function TrainingSimulationsPage() {
               <SelectedLine label="客户" value={selectedCustomer?.name} />
               <SelectedLine label="代理人" value={selectedAgent?.name} />
               <SelectedLine label="场景" value={selectedScenario?.name} />
-              <label className="block space-y-1.5">
+              <label className="block min-w-0 space-y-1.5">
                 <span className="text-muted-foreground text-xs font-medium">
                   对话轮数
                 </span>
@@ -366,7 +366,7 @@ export default function TrainingSimulationsPage() {
                 />
               </label>
               <Button
-                className="w-full"
+                className="w-full min-w-0"
                 disabled={busy === "run-simulation" || practiceMode !== "auto"}
                 onClick={() => void runSimulation()}
               >
@@ -378,7 +378,7 @@ export default function TrainingSimulationsPage() {
                 逐句自动生成
               </Button>
               <Button
-                className="w-full"
+                className="w-full min-w-0"
                 variant="outline"
                 disabled={
                   !activeSimulation ||
@@ -498,7 +498,7 @@ export default function TrainingSimulationsPage() {
           </Panel>
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <Panel className="flex h-[640px] flex-col">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <SectionTitle
@@ -703,7 +703,9 @@ function CompactSelection({
   return (
     <div className="min-w-0">
       <div className="mb-2 text-xs font-semibold">{title}</div>
-      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{children}</div>
+      <div className="max-h-72 min-w-0 space-y-2 overflow-y-auto pr-1">
+        {children}
+      </div>
     </div>
   );
 }
