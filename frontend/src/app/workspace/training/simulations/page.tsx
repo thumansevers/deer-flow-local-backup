@@ -499,7 +499,7 @@ export default function TrainingSimulationsPage() {
         </div>
 
         <div className="space-y-5">
-          <Panel className="min-h-[640px]">
+          <Panel className="flex h-[640px] flex-col">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <SectionTitle
                 icon={MessageSquareTextIcon}
@@ -524,7 +524,7 @@ export default function TrainingSimulationsPage() {
               </Button>
             </div>
 
-            <div className="bg-muted/10 mt-4 min-h-[460px] space-y-3 rounded-md border p-4">
+            <div className="bg-muted/10 mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto rounded-md border p-4">
               {activeSimulation?.messages?.length ? (
                 <>
                   {activeSimulation.messages.map((message) => (
@@ -717,7 +717,9 @@ function ReviewReportView({ report }: { report: TrainingReport }) {
       <div className="grid gap-2 sm:grid-cols-4">
         {Object.entries(report.report.scores ?? {}).map(([key, value]) => (
           <div key={key} className="bg-background rounded-md border p-3">
-            <div className="text-muted-foreground truncate text-xs">{key}</div>
+            <div className="text-muted-foreground truncate text-xs">
+              {formatScoreLabel(key)}
+            </div>
             <div className="mt-1 text-lg font-semibold">{value}/5</div>
           </div>
         ))}
@@ -735,4 +737,19 @@ function ReviewReportView({ report }: { report: TrainingReport }) {
       </div>
     </div>
   );
+}
+
+const scoreLabels: Record<string, string> = {
+  need_discovery: "需求挖掘",
+  trust_building: "信任建立",
+  empathy: "共情回应",
+  product_explanation: "产品解释",
+  objection_handling: "异议处理",
+  closing: "成交推进",
+  compliance: "合规表达",
+  overall: "综合表现",
+};
+
+function formatScoreLabel(key: string) {
+  return scoreLabels[key] ?? key;
 }

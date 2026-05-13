@@ -264,7 +264,7 @@ export function RoleDetailDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="flex h-[min(720px,88vh)] flex-col overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b px-6 py-5">
           <div className="flex items-start gap-4 pr-8">
             {role.avatar_url ? (
@@ -295,7 +295,7 @@ export function RoleDetailDialog({
           </div>
         </DialogHeader>
 
-        <div className="max-h-[calc(88vh-126px)] overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="grid gap-4">
             <DetailBlock title="一句话摘要">
               <p>{role.summary || "未填写摘要。"}</p>
@@ -361,7 +361,7 @@ export function ScenarioDetailDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="flex h-[min(680px,88vh)] flex-col overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b px-6 py-5 pr-12">
           <DialogTitle className="leading-7">{scenario.name}</DialogTitle>
           <DialogDescription>
@@ -371,7 +371,7 @@ export function ScenarioDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[calc(88vh-110px)] overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="grid gap-4">
             <DetailBlock title="一句话摘要">
               <p>{scenario.summary || "未填写摘要。"}</p>
@@ -442,13 +442,48 @@ export function ReportList({
   if (!items?.length) return null;
   return (
     <div className="rounded-md border p-3">
-      <h3 className="mb-2 text-xs font-semibold">{title}</h3>
-      <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-xs leading-5">
+      <h3 className="mb-2 text-sm font-semibold">{title}</h3>
+      <ul className="space-y-2">
         {items.map((item, index) => (
-          <li key={`${title}-${index}`}>{item}</li>
+          <li key={`${title}-${index}`}>
+            <ReportListItemDialog
+              title={`${title} ${index + 1}`}
+              content={item}
+            />
+          </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+function ReportListItemDialog({
+  title,
+  content,
+}: {
+  title: string;
+  content: string;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="hover:border-primary/40 hover:bg-muted/40 bg-background w-full rounded-md border px-3 py-2 text-left text-sm leading-6 transition-colors"
+        >
+          <span className="line-clamp-3">{content}</span>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="flex h-[min(520px,78vh)] flex-col overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b px-6 py-5 pr-12">
+          <DialogTitle className="leading-7">{title}</DialogTitle>
+          <DialogDescription>点击复盘条目查看完整内容。</DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <p className="text-sm leading-7 whitespace-pre-wrap">{content}</p>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
