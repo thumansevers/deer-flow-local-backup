@@ -9,6 +9,14 @@ import {
 import { type ComponentType, type ReactNode } from "react";
 import { toast } from "sonner";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { type TrainingRole, type TrainingScenario } from "@/core/training/api";
 import { cn } from "@/lib/utils";
 
@@ -246,6 +254,67 @@ export function RoleCard({
   );
 }
 
+export function RoleDetailDialog({
+  role,
+  children,
+}: {
+  role: TrainingRole;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-5">
+          <div className="flex items-start gap-4 pr-8">
+            {role.avatar_url ? (
+              <img
+                src={role.avatar_url}
+                alt={role.name}
+                className="size-16 shrink-0 rounded-md border object-cover"
+              />
+            ) : (
+              <div className="bg-muted flex size-16 shrink-0 items-center justify-center rounded-md border">
+                {role.role_type === "customer" ? (
+                  <UserRoundIcon className="text-muted-foreground size-6" />
+                ) : (
+                  <BotIcon className="text-muted-foreground size-6" />
+                )}
+              </div>
+            )}
+            <div className="min-w-0">
+              <DialogTitle className="leading-7">{role.name}</DialogTitle>
+              <DialogDescription className="mt-1">
+                {role.role_type === "customer" ? "模拟客户" : "模拟代理人"} ·
+                画像版本 v{role.version}
+              </DialogDescription>
+              <div className="mt-3">
+                <TagList tags={role.tags} />
+              </div>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="max-h-[calc(88vh-126px)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-4">
+            <DetailBlock title="一句话摘要">
+              <p>{role.summary || "未填写摘要。"}</p>
+            </DetailBlock>
+            <DetailBlock title="完整描述">
+              <p className="whitespace-pre-wrap">
+                {role.description || "未填写描述。"}
+              </p>
+            </DetailBlock>
+            <DetailBlock title="结构化画像 JSON">
+              <JsonBlock value={role.structured_profile} />
+            </DetailBlock>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ScenarioCard({
   scenario,
   active,
@@ -279,6 +348,87 @@ export function ScenarioCard({
         <span>{scenario.recommended_turns} 轮</span>
       </div>
     </button>
+  );
+}
+
+export function ScenarioDetailDialog({
+  scenario,
+  children,
+}: {
+  scenario: TrainingScenario;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-5 pr-12">
+          <DialogTitle className="leading-7">{scenario.name}</DialogTitle>
+          <DialogDescription>
+            {scenario.sales_stage || "未设置阶段"} ·{" "}
+            {scenario.product_type || "通用产品"} · {scenario.difficulty} ·{" "}
+            {scenario.recommended_turns} 轮
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[calc(88vh-110px)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-4">
+            <DetailBlock title="一句话摘要">
+              <p>{scenario.summary || "未填写摘要。"}</p>
+            </DetailBlock>
+            <DetailBlock title="完整描述">
+              <p className="whitespace-pre-wrap">
+                {scenario.description || "未填写描述。"}
+              </p>
+            </DetailBlock>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MetaTile label="销售阶段" value={scenario.sales_stage} />
+              <MetaTile label="产品类型" value={scenario.product_type} />
+              <MetaTile label="难度" value={scenario.difficulty} />
+              <MetaTile
+                label="建议轮数"
+                value={`${scenario.recommended_turns} 轮`}
+              />
+            </div>
+            <DetailBlock title="结构化场景 JSON">
+              <JsonBlock value={scenario.structured_scenario} />
+            </DetailBlock>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DetailBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-md border p-3">
+      <h3 className="mb-2 text-xs font-semibold">{title}</h3>
+      <div className="text-muted-foreground text-sm leading-6">{children}</div>
+    </section>
+  );
+}
+
+function JsonBlock({ value }: { value: unknown }) {
+  return (
+    <pre className="bg-muted/40 max-h-80 overflow-auto rounded-md border p-3 text-xs leading-5 whitespace-pre-wrap">
+      {pretty(value)}
+    </pre>
+  );
+}
+
+function MetaTile({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="bg-muted/20 rounded-md border p-3">
+      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="mt-1 text-sm font-medium">{value ?? "未设置"}</div>
+    </div>
   );
 }
 

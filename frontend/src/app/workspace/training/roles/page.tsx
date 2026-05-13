@@ -34,6 +34,7 @@ import {
   pretty,
   roleDefaults,
   RoleCard,
+  RoleDetailDialog,
   SectionTitle,
   showError,
   splitTags,
@@ -349,7 +350,9 @@ function RoleColumn({
         {roles.length ? (
           roles.map((role) => (
             <div key={role.id} className="group relative">
-              <RoleCard role={role} />
+              <RoleDetailDialog role={role}>
+                <RoleCard role={role} />
+              </RoleDetailDialog>
               <Button
                 type="button"
                 variant="ghost"

@@ -27,6 +27,7 @@ import {
   parseJsonObject,
   pretty,
   ScenarioCard,
+  ScenarioDetailDialog,
   scenarioDefault,
   SectionTitle,
   showError,
@@ -278,7 +279,9 @@ export default function TrainingScenariosPage() {
             {scenarios.length ? (
               scenarios.map((scenario) => (
                 <div key={scenario.id} className="group relative">
-                  <ScenarioCard scenario={scenario} />
+                  <ScenarioDetailDialog scenario={scenario}>
+                    <ScenarioCard scenario={scenario} />
+                  </ScenarioDetailDialog>
                   <Button
                     type="button"
                     variant="ghost"
