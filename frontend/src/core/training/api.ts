@@ -116,6 +116,22 @@ export interface RevisionPreview {
   change_reason: string;
 }
 
+export interface TrainingCustomModelConfig {
+  provider?: "deepseek_compatible";
+  display_name?: string;
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+  temperature?: number;
+  max_tokens?: number;
+  request_timeout?: number;
+}
+
+export interface TrainingModelOverride {
+  model_name?: string;
+  custom_model?: TrainingCustomModelConfig;
+}
+
 export const trainingApi = {
   roles: (roleType?: TrainingRoleType) =>
     request<TrainingRole[]>(
@@ -127,6 +143,7 @@ export const trainingApi = {
     description: string;
     basic_fields?: Record<string, unknown>;
     model_name?: string;
+    training_model?: TrainingModelOverride;
   }) =>
     request<{
       name?: string;
@@ -151,6 +168,7 @@ export const trainingApi = {
     description: string;
     basic_fields?: Record<string, unknown>;
     model_name?: string;
+    training_model?: TrainingModelOverride;
   }) =>
     request<{
       summary: string;
@@ -175,30 +193,35 @@ export const trainingApi = {
     scenario_id: string;
     max_turns: number;
     model_name?: string;
+    training_model?: TrainingModelOverride;
   }) =>
     request<TrainingSimulation>("/simulations", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runSimulation: (id: string, modelName?: string) =>
+  runSimulation: (id: string, trainingModel?: TrainingModelOverride) =>
     request<{
       session_id: string;
       status: string;
       messages: TrainingMessage[];
     }>(`/simulations/${id}/run`, {
       method: "POST",
-      body: JSON.stringify({ mode: "auto", model_name: modelName }),
+      body: JSON.stringify({ mode: "auto", training_model: trainingModel }),
     }),
-  nextTurn: (id: string, modelName?: string) =>
+  nextTurn: (id: string, trainingModel?: TrainingModelOverride) =>
     request<{
       message: TrainingMessage;
       session_status: string;
       session: TrainingSimulation;
     }>(`/simulations/${id}/next-turn`, {
       method: "POST",
-      body: JSON.stringify({ model_name: modelName }),
+      body: JSON.stringify({ training_model: trainingModel }),
     }),
-  humanTurn: (id: string, content: string, modelName?: string) =>
+  humanTurn: (
+    id: string,
+    content: string,
+    trainingModel?: TrainingModelOverride,
+  ) =>
     request<{
       human_message: TrainingMessage;
       customer_message: TrainingMessage | null;
@@ -206,14 +229,17 @@ export const trainingApi = {
       session: TrainingSimulation;
     }>(`/simulations/${id}/human-turn`, {
       method: "POST",
-      body: JSON.stringify({ content, model_name: modelName }),
+      body: JSON.stringify({ content, training_model: trainingModel }),
     }),
   getSimulation: (id: string) =>
     request<TrainingSimulation>(`/simulations/${id}`),
-  createReview: (id: string, modelName?: string) =>
+  createReview: (id: string, trainingModel?: TrainingModelOverride) =>
     request<TrainingReport>(
       `/simulations/${id}/review`,
-      { method: "POST", body: JSON.stringify({ model_name: modelName }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ training_model: trainingModel }),
+      },
       { timeoutMs: null },
     ),
   revisionPreview: (

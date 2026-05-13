@@ -15,7 +15,18 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
     reasoning_effort: undefined,
   },
   training: {
+    source: "configured",
     model_name: undefined,
+    custom_model: {
+      provider: "deepseek_compatible",
+      display_name: "自定义保险训练模型",
+      model: "deepseek-v4-pro",
+      base_url: "https://api.deepseek.com",
+      api_key: "",
+      temperature: 0.7,
+      max_tokens: 8192,
+      request_timeout: 600,
+    },
   },
 };
 
@@ -48,7 +59,18 @@ export interface LocalSettings {
     reasoning_effort?: "minimal" | "low" | "medium" | "high";
   };
   training: {
+    source?: "configured" | "custom";
     model_name?: string | undefined;
+    custom_model?: {
+      provider?: "deepseek_compatible";
+      display_name?: string;
+      model?: string;
+      base_url?: string;
+      api_key?: string;
+      temperature?: number;
+      max_tokens?: number;
+      request_timeout?: number;
+    };
   };
 }
 
@@ -70,6 +92,10 @@ function mergeLocalSettings(settings?: Partial<LocalSettings>): LocalSettings {
     training: {
       ...DEFAULT_LOCAL_SETTINGS.training,
       ...settings?.training,
+      custom_model: {
+        ...DEFAULT_LOCAL_SETTINGS.training.custom_model,
+        ...settings?.training?.custom_model,
+      },
     },
   };
 }

@@ -29,6 +29,7 @@ import {
   type TrainingSimulation,
   type TrainingMessage,
 } from "@/core/training/api";
+import { buildTrainingModelOverride } from "@/core/training/settings";
 import { cn } from "@/lib/utils";
 
 import {
@@ -144,7 +145,7 @@ export default function TrainingSimulationsPage() {
       agent_role_id: selectedAgentId,
       scenario_id: selectedScenarioId,
       max_turns: maxTurns,
-      model_name: settings.training.model_name,
+      training_model: buildTrainingModelOverride(settings.training),
     });
   }
 
@@ -161,7 +162,7 @@ export default function TrainingSimulationsPage() {
       for (let index = 0; index < maxTurns; index += 1) {
         const result = await trainingApi.nextTurn(
           currentSession.id,
-          settings.training.model_name,
+          buildTrainingModelOverride(settings.training),
         );
         appendMessages(result.session, [result.message]);
         currentSession = result.session;
@@ -205,7 +206,7 @@ export default function TrainingSimulationsPage() {
       const result = await trainingApi.humanTurn(
         session.id,
         content,
-        settings.training.model_name,
+        buildTrainingModelOverride(settings.training),
       );
       replacePendingMessage(result.session, pendingId, [
         result.human_message,
@@ -236,7 +237,7 @@ export default function TrainingSimulationsPage() {
     try {
       const report = await trainingApi.createReview(
         activeSimulation.id,
-        settings.training.model_name,
+        buildTrainingModelOverride(settings.training),
       );
       setActiveReport(report);
       setActiveSimulation(await trainingApi.getSimulation(activeSimulation.id));

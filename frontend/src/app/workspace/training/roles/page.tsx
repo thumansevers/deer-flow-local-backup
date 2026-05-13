@@ -20,6 +20,7 @@ import {
   type TrainingRole,
   type TrainingRoleType,
 } from "@/core/training/api";
+import { buildTrainingModelOverride } from "@/core/training/settings";
 import { cn } from "@/lib/utils";
 
 import {
@@ -88,7 +89,7 @@ export default function TrainingRolesPage() {
         role_type: activeRoleType,
         name: roleName,
         description: roleDescription,
-        model_name: settings.training.model_name,
+        training_model: buildTrainingModelOverride(settings.training),
       });
       if (parsed.name) setRoleName(parsed.name);
       if (

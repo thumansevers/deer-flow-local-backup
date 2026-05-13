@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocalSettings } from "@/core/settings";
 import { trainingApi, type TrainingScenario } from "@/core/training/api";
+import { buildTrainingModelOverride } from "@/core/training/settings";
 
 import {
   EmptyState,
@@ -62,7 +63,7 @@ export default function TrainingScenariosPage() {
       const parsed = await trainingApi.parseScenario({
         name: scenarioName,
         description: scenarioDescription,
-        model_name: settings.training.model_name,
+        training_model: buildTrainingModelOverride(settings.training),
       });
       setScenarioMeta({
         summary: parsed.summary ?? "",
