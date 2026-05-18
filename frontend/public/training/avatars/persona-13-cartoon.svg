@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="cartoon customer avatar">
+  <rect width="160" height="160" rx="28" fill="#f3f0ff"/>
+  <circle cx="80" cy="78" r="42" fill="#f0bea0"/>
+  <path d="M38 82c-2-32 17-53 42-53 30 0 47 23 43 55-18-8-35-23-46-42-7 17-20 31-39 40z" fill="#744c9e"/>
+  <circle cx="64" cy="82" r="5" fill="#111827"/>
+  <circle cx="96" cy="82" r="5" fill="#111827"/>
+  <path d="M66 101c8 8 20 8 28 0" fill="none" stroke="#9f4a38" stroke-width="5" stroke-linecap="round"/>
+  <path d="M30 160c6-26 25-42 50-42s44 16 50 42H30z" fill="#f97316"/>
+  <path d="M62 126h36v34H62z" fill="#ffffff" opacity=".22"/>
+  <path d="M51 67c11-28 38-43 65-26" fill="none" stroke="#8b5cf6" stroke-width="8" stroke-linecap="round"/>
+</svg>

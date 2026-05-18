@@ -23,7 +23,8 @@ import { buildTrainingModelOverride } from "@/core/training/settings";
 import { cn } from "@/lib/utils";
 
 import {
-  avatarUrls,
+  agentAvatarUrls,
+  customerAvatarUrls,
   FieldBlock,
   PageHeader,
   Panel,
@@ -53,7 +54,7 @@ export function RoleEditor({
   const [roleSummary, setRoleSummary] = useState("");
   const [roleTags, setRoleTags] = useState("");
   const [roleProfileJson, setRoleProfileJson] = useState("{}");
-  const [avatarUrl, setAvatarUrl] = useState(avatarUrls[0] ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(customerAvatarUrls[0] ?? "");
   const [version, setVersion] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(
     mode === "edit" ? "load" : null,
@@ -99,7 +100,9 @@ export function RoleEditor({
     setRoleTags("");
     setRoleProfileJson("{}");
     setAvatarUrl(
-      type === "customer" ? (avatarUrls[0] ?? "") : (avatarUrls[5] ?? ""),
+      type === "customer"
+        ? (customerAvatarUrls[0] ?? "")
+        : (agentAvatarUrls[0] ?? ""),
     );
   }
 
@@ -117,8 +120,8 @@ export function RoleEditor({
         setRoleType(parsed.detected_role_type);
         setAvatarUrl(
           parsed.detected_role_type === "customer"
-            ? (avatarUrls[0] ?? "")
-            : (avatarUrls[5] ?? ""),
+            ? (customerAvatarUrls[0] ?? "")
+            : (agentAvatarUrls[0] ?? ""),
         );
         toast.info(
           parsed.detected_role_type === "agent"
@@ -370,10 +373,7 @@ function AvatarPicker({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const urls = avatarUrls.slice(
-    roleType === "customer" ? 0 : 5,
-    roleType === "customer" ? 5 : 10,
-  );
+  const urls = roleType === "customer" ? customerAvatarUrls : agentAvatarUrls;
   return (
     <div>
       <div className="text-muted-foreground mb-2 text-xs font-medium">头像</div>

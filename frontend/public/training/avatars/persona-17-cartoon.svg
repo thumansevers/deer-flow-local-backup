@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="cartoon agent avatar">
+  <rect width="160" height="160" rx="28" fill="#eff6ff"/>
+  <circle cx="80" cy="75" r="42" fill="#c98a63"/>
+  <path d="M40 72c5-28 23-45 47-43 22 2 36 18 36 44-17-2-33-9-48-23-9 13-21 20-35 22z" fill="#111827"/>
+  <path d="M52 77h25v17H52zM84 77h25v17H84z" fill="none" stroke="#0f172a" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M77 85h7" stroke="#0f172a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="65" cy="85" r="3" fill="#111827"/>
+  <circle cx="97" cy="85" r="3" fill="#111827"/>
+  <path d="M70 104c7 5 13 5 20 0" fill="none" stroke="#7c2d12" stroke-width="5" stroke-linecap="round"/>
+  <path d="M28 160c7-29 26-47 52-47s45 18 52 47H28z" fill="#1d4ed8"/>
+  <path d="M60 122l20 17 20-17" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -20,10 +20,31 @@ import {
 import { type TrainingRole, type TrainingScenario } from "@/core/training/api";
 import { cn } from "@/lib/utils";
 
-export const avatarUrls = Array.from(
-  { length: 10 },
-  (_, i) => `/training/avatars/persona-${String(i + 1).padStart(2, "0")}.png`,
-);
+export const customerAvatarUrls = [
+  "/training/avatars/persona-01.png",
+  "/training/avatars/persona-02.png",
+  "/training/avatars/persona-03.png",
+  "/training/avatars/persona-04.png",
+  "/training/avatars/persona-05.png",
+  "/training/avatars/persona-11-cartoon.svg",
+  "/training/avatars/persona-12-cartoon.svg",
+  "/training/avatars/persona-13-cartoon.svg",
+  "/training/avatars/persona-14-cartoon.svg",
+];
+
+export const agentAvatarUrls = [
+  "/training/avatars/persona-06.png",
+  "/training/avatars/persona-07.png",
+  "/training/avatars/persona-08.png",
+  "/training/avatars/persona-09.png",
+  "/training/avatars/persona-10.png",
+  "/training/avatars/persona-15-cartoon.svg",
+  "/training/avatars/persona-16-cartoon.svg",
+  "/training/avatars/persona-17-cartoon.svg",
+  "/training/avatars/persona-18-cartoon.svg",
+];
+
+export const avatarUrls = [...customerAvatarUrls, ...agentAvatarUrls];
 
 export const roleDefaults = {
   customer:
