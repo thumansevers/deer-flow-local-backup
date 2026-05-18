@@ -116,6 +116,18 @@ export function ScenarioEditor({
     }
   }
 
+  function generateExampleScenario() {
+    if (mode !== "create") return;
+    const draft =
+      scenarioExampleDrafts[
+        Math.floor(Date.now() / 1000) % scenarioExampleDrafts.length
+      ];
+    if (!draft) return;
+    setScenarioName(draft.name);
+    setScenarioDescription(draft.description);
+    toast.success("已填入示例场景描述，可继续编辑或点击 AI 解析。");
+  }
+
   async function saveScenario() {
     setBusy("save");
     const payload: Omit<TrainingScenario, "id"> = {
@@ -202,14 +214,22 @@ export function ScenarioEditor({
                   }
                 />
               </FieldBlock>
-              <Button disabled={busy === "parse"} onClick={parseScenario}>
-                {busy === "parse" ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <SparklesIcon className="size-4" />
+              <div className="flex flex-wrap gap-2">
+                {mode === "create" && (
+                  <Button variant="outline" onClick={generateExampleScenario}>
+                    <SparklesIcon className="size-4" />
+                    生成示例描述
+                  </Button>
                 )}
-                AI 解析训练场景
-              </Button>
+                <Button disabled={busy === "parse"} onClick={parseScenario}>
+                  {busy === "parse" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-4" />
+                  )}
+                  AI 解析训练场景
+                </Button>
+              </div>
             </div>
           </Panel>
 
@@ -377,3 +397,21 @@ function readStringList(value: unknown) {
     ? value.filter((item): item is string => typeof item === "string")
     : [];
 }
+
+const scenarioExampleDrafts = [
+  {
+    name: "年轻家庭首次配置重疾保障",
+    description:
+      "客户是一对刚有孩子的年轻夫妻，家庭收入稳定但房贷压力较大。客户听朋友介绍来了解重疾险和医疗险，但担心预算被长期保费锁死，也担心理赔时手续复杂。训练目标是让代理人先建立信任，完成家庭保障缺口梳理，再自然解释重疾险和医疗险的不同作用。",
+  },
+  {
+    name: "高净值客户养老社区权益沟通",
+    description:
+      "客户是企业主，资产充足但对保险销售有防备心理，主要关心父母养老、未来医疗资源和财富传承安排。客户不想听产品推销，希望代理人先讲清楚泰康医养生态、养老社区权益和家庭长期风险安排。训练目标是提升代理人的顾问式沟通能力。",
+  },
+  {
+    name: "老客户保单年检与加保沟通",
+    description:
+      "客户三年前买过基础重疾险，最近家庭收入提升且二胎出生。客户对老保单比较满意，但对新增保障没有明确想法，担心代理人只是为了加保。训练目标是让代理人通过保单年检发现保障缺口，以服务关系推动下一步方案。",
+  },
+];
