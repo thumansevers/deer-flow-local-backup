@@ -824,6 +824,7 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
       );
       setActiveReport(report);
       setSimulation(await trainingApi.getSimulation(simulation.id));
+      setRevisionPreview(null);
       toast.success("复盘报告已生成");
     } catch (error) {
       showError(error);
@@ -840,13 +841,15 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
         : simulation.agent_role_id;
     setBusy(`preview-${roleType}`);
     try {
-      setRevisionPreview(
-        await trainingApi.revisionPreview(activeReport.id, {
-          role_id: roleId,
-          revision_type:
-            roleType === "customer" ? "customer_refinement" : "agent_upgrade",
-        }),
-      );
+      const preview = await trainingApi.revisionPreview(activeReport.id, {
+        role_id: roleId,
+        revision_type:
+          roleType === "customer" ? "customer_refinement" : "agent_upgrade",
+      });
+      setRevisionPreview(preview);
+      if (!revisionHasChanges(preview)) {
+        toast.info("这份复盘暂时没有可应用的画像增量，可以重新生成复盘。");
+      }
     } catch (error) {
       showError(error);
     } finally {
@@ -856,6 +859,10 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
 
   async function applyRevision() {
     if (!revisionPreview || !activeReport || !simulation) return;
+    if (!revisionHasChanges(revisionPreview)) {
+      toast.error("当前没有可应用的画像变更。");
+      return;
+    }
     setBusy("apply-revision");
     try {
       await trainingApi.applyRevision({
@@ -943,7 +950,11 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
                   disabled={busy === "preview-customer"}
                   onClick={() => void previewRevision("customer")}
                 >
-                  <SparklesIcon className="size-4" />
+                  {busy === "preview-customer" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-4" />
+                  )}
                   客户画像建议
                 </Button>
                 <Button
@@ -951,7 +962,11 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
                   disabled={busy === "preview-agent"}
                   onClick={() => void previewRevision("agent")}
                 >
-                  <SparklesIcon className="size-4" />
+                  {busy === "preview-agent" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-4" />
+                  )}
                   代理人升级建议
                 </Button>
               </>
@@ -977,34 +992,12 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
           </Panel>
 
           {revisionPreview && (
-            <Panel>
-              <SectionTitle
-                icon={SparklesIcon}
-                title="画像更新建议"
-                description="确认后会把建议应用到对应角色画像版本。"
-              />
-              <div className="mt-4 space-y-3">
-                <p className="text-muted-foreground text-sm leading-6">
-                  {revisionPreview.change_reason}
-                </p>
-                <Textarea
-                  readOnly
-                  className="font-mono text-xs"
-                  rows={8}
-                  value={pretty(revisionPreview.diff)}
-                />
-                <Button
-                  className="w-full"
-                  disabled={busy === "apply-revision"}
-                  onClick={() => void applyRevision()}
-                >
-                  {busy === "apply-revision" && (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  )}
-                  应用画像更新
-                </Button>
-              </div>
-            </Panel>
+            <RevisionPreviewPanel
+              preview={revisionPreview}
+              busy={busy === "apply-revision"}
+              onApply={() => void applyRevision()}
+              onClose={() => setRevisionPreview(null)}
+            />
           )}
         </div>
       </div>
@@ -1033,6 +1026,270 @@ function SelectionPanel({
 
 function SelectionGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 lg:grid-cols-2">{children}</div>;
+}
+
+interface RevisionChangedField {
+  key: string;
+  before_preview?: string;
+  after_preview?: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+function revisionHasChanges(preview: RevisionPreview) {
+  const totalChanges = Number(preview.diff.total_changes ?? 0);
+  return Boolean(preview.diff.has_changes) || totalChanges > 0;
+}
+
+function getAddedTags(preview: RevisionPreview) {
+  const tags = preview.diff.added_tags;
+  return Array.isArray(tags) ? tags.map(String).filter(Boolean) : [];
+}
+
+function getChangedProfileFields(preview: RevisionPreview) {
+  const fields = preview.diff.changed_profile_fields;
+  if (!Array.isArray(fields)) return [];
+  return fields
+    .filter(
+      (field): field is RevisionChangedField =>
+        Boolean(field) &&
+        typeof field === "object" &&
+        "key" in field &&
+        typeof field.key === "string",
+    )
+    .slice(0, 12);
+}
+
+function getSummaryChange(preview: RevisionPreview) {
+  if (!preview.diff.summary_changed) return null;
+  return {
+    before: previewText(preview.diff.summary_before),
+    after: previewText(preview.diff.summary_after),
+  };
+}
+
+function getRevisionTitle(preview: RevisionPreview) {
+  return preview.revision_type === "agent_upgrade"
+    ? "代理人升级建议"
+    : "客户画像建议";
+}
+
+function getRevisionDescription(preview: RevisionPreview) {
+  return preview.revision_type === "agent_upgrade"
+    ? "把本场对话里的能力短板、保留优势和下一轮训练重点沉淀到代理人画像。"
+    : "把本场对话里暴露出的真实顾虑、决策规则和口吻变化沉淀到客户画像。";
+}
+
+const profileFieldLabels: Record<string, string> = {
+  personality: "性格与防备模式",
+  hidden_motivations: "隐藏动机",
+  decision_rules: "决策规则",
+  objections: "典型异议",
+  trust_triggers: "信任触发点",
+  speech_style: "语言风格",
+  common_phrases: "常用表达",
+  response_rules: "回应规则",
+  next_simulation_notes: "下次模拟提示",
+  coaching_focus: "辅导重点",
+  strengths_to_keep: "应保留优势",
+  skill_gaps: "能力短板",
+  compliance_guardrails: "合规边界",
+  next_training_plan: "下一轮训练计划",
+};
+
+function formatProfileFieldLabel(key: string) {
+  return profileFieldLabels[key] ?? key;
+}
+
+function previewText(value: unknown, fallback?: unknown) {
+  if (typeof value === "string") return value;
+  if (fallback !== undefined) return pretty(fallback);
+  return pretty(value);
+}
+
+function RevisionPreviewPanel({
+  preview,
+  busy,
+  onApply,
+  onClose,
+}: {
+  preview: RevisionPreview;
+  busy: boolean;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const hasChanges = revisionHasChanges(preview);
+  const addedTags = getAddedTags(preview);
+  const changedFields = getChangedProfileFields(preview);
+  const summaryChange = getSummaryChange(preview);
+
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionTitle
+          icon={SparklesIcon}
+          title={getRevisionTitle(preview)}
+          description={getRevisionDescription(preview)}
+        />
+        <Button variant="outline" size="sm" onClick={onClose}>
+          收起建议
+        </Button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <RevisionMetric
+          label="目标角色"
+          value={preview.role_name ?? "当前角色"}
+        />
+        <RevisionMetric label="新增标签" value={`${addedTags.length} 个`} />
+        <RevisionMetric label="画像字段" value={`${changedFields.length} 项`} />
+      </div>
+
+      <div className="bg-muted/20 mt-4 rounded-md border p-4">
+        <div className="text-xs font-semibold">建议理由</div>
+        <p className="text-muted-foreground mt-2 text-sm leading-6">
+          {preview.change_reason || "本次复盘建议补充画像信息。"}
+        </p>
+      </div>
+
+      {!hasChanges ? (
+        <EmptyState
+          icon={SparklesIcon}
+          title="暂无可应用的画像变更"
+          description="当前复盘没有返回结构化画像增量，可以重新生成复盘，或继续对练积累更多对话证据。"
+        />
+      ) : (
+        <div className="mt-4 space-y-4">
+          {summaryChange && (
+            <RevisionChangeBlock
+              title="一句话摘要"
+              before={summaryChange.before || "未填写摘要。"}
+              after={summaryChange.after || "未填写摘要。"}
+            />
+          )}
+
+          {addedTags.length > 0 && (
+            <div className="rounded-md border p-4">
+              <div className="text-xs font-semibold">建议新增标签</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {addedTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="bg-muted text-muted-foreground rounded px-2 py-1 text-xs"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-3">
+            {changedFields.map((field) => (
+              <RevisionChangeBlock
+                key={field.key}
+                title={formatProfileFieldLabel(field.key)}
+                before={previewText(field.before_preview, field.before)}
+                after={previewText(field.after_preview, field.after)}
+              />
+            ))}
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            <RevisionJsonBlock
+              title="AI 原始建议"
+              value={preview.suggestions}
+            />
+            <RevisionJsonBlock title="应用后画像预览" value={preview.after} />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+        <Button variant="outline" onClick={onClose}>
+          暂不应用
+        </Button>
+        <Button disabled={busy || !hasChanges} onClick={onApply}>
+          {busy ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <SparklesIcon className="size-4" />
+          )}
+          应用到角色画像
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function RevisionMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-background rounded-md border p-3">
+      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="mt-1 text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function RevisionChangeBlock({
+  title,
+  before,
+  after,
+}: {
+  title: string;
+  before: string;
+  after: string;
+}) {
+  return (
+    <section className="rounded-md border p-4">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <RevisionTextBlock label="当前" text={before} muted />
+        <RevisionTextBlock label="建议更新为" text={after} />
+      </div>
+    </section>
+  );
+}
+
+function RevisionTextBlock({
+  label,
+  text,
+  muted,
+}: {
+  label: string;
+  text: string;
+  muted?: boolean;
+}) {
+  return (
+    <div className="bg-muted/20 min-w-0 rounded-md border p-3">
+      <div className="text-muted-foreground text-xs font-medium">{label}</div>
+      <p
+        className={cn(
+          "mt-2 max-h-44 overflow-y-auto text-sm leading-6 whitespace-pre-wrap",
+          muted && "text-muted-foreground",
+        )}
+      >
+        {text || "未填写。"}
+      </p>
+    </div>
+  );
+}
+
+function RevisionJsonBlock({
+  title,
+  value,
+}: {
+  title: string;
+  value: unknown;
+}) {
+  return (
+    <section className="rounded-md border p-4">
+      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+      <pre className="bg-muted/30 max-h-96 overflow-auto rounded-md border p-3 text-xs leading-5 whitespace-pre-wrap">
+        {pretty(value)}
+      </pre>
+    </section>
+  );
 }
 
 function ChatBubble({

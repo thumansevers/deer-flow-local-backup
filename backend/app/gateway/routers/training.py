@@ -478,7 +478,12 @@ report: {scores, strengths, weaknesses, customer_reactions, good_phrases, bad_ph
 customer_profile_suggestions,
 agent_profile_upgrade_suggestions。
 scores 使用 1-5 分，包含 need_discovery, trust_building, empathy, product_explanation, objection_handling, closing, compliance, overall。
-画像建议只给建议，不要假设已经自动应用。"""
+画像建议只给建议，不要假设已经自动应用。
+customer_profile_suggestions 必须用于完善模拟客户画像，建议包含：
+summary, tags, structured_profile: {personality, hidden_motivations, decision_rules, objections, trust_triggers, speech_style, common_phrases, response_rules, next_simulation_notes}, change_reason。
+agent_profile_upgrade_suggestions 必须用于完善模拟代理人画像，建议包含：
+summary, tags, structured_profile: {coaching_focus, strengths_to_keep, skill_gaps, response_rules, common_phrases, compliance_guardrails, next_training_plan}, change_reason。
+如果本次对话信息不足，也要给出可用于下一轮训练的最小增量建议。"""
 
 
 class ParseRoleRequest(BaseModel):
@@ -1211,25 +1216,60 @@ async def get_latest_review(session_id: str, request: Request) -> dict[str, Any]
         return _row_dict(row)
 
 
+def _stringify_preview_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    if value is None:
+        return ""
+    return str(value)
+
+
 def _merge_profile(role: RoleProfileRow, suggestions: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     before = {
         "summary": role.summary,
         "structured_profile": role.structured_profile,
         "tags": role.tags,
     }
+    existing_tags = role.tags or []
+    existing_profile = role.structured_profile or {}
     suggested_tags = suggestions.get("tags") if isinstance(suggestions.get("tags"), list) else []
-    after_tags = list(dict.fromkeys([*role.tags, *[str(tag) for tag in suggested_tags]]))
-    suggested_profile = suggestions.get("structured_profile") if isinstance(suggestions.get("structured_profile"), dict) else suggestions
-    after_profile = {**(role.structured_profile or {}), **(suggested_profile or {})}
+    after_tags = list(dict.fromkeys([*existing_tags, *[str(tag) for tag in suggested_tags]]))
+    if isinstance(suggestions.get("structured_profile"), dict):
+        suggested_profile = suggestions["structured_profile"]
+    else:
+        excluded_keys = {"summary", "tags", "change_reason", "reason", "rationale"}
+        suggested_profile = {key: value for key, value in suggestions.items() if key not in excluded_keys}
+    after_profile = {**existing_profile, **(suggested_profile or {})}
     after = {
         "summary": str(suggestions.get("summary") or role.summary),
         "structured_profile": after_profile,
         "tags": after_tags,
     }
+    changed_profile_fields = []
+    for key in (suggested_profile or {}).keys():
+        before_value = existing_profile.get(key) if isinstance(existing_profile, dict) else None
+        after_value = after_profile.get(key) if isinstance(after_profile, dict) else None
+        if before_value != after_value:
+            changed_profile_fields.append(
+                {
+                    "key": key,
+                    "before": before_value,
+                    "after": after_value,
+                    "before_preview": _stringify_preview_value(before_value)[:500],
+                    "after_preview": _stringify_preview_value(after_value)[:500],
+                }
+            )
+    summary_changed = before["summary"] != after["summary"]
+    added_tags = [tag for tag in after_tags if tag not in existing_tags]
     diff = {
-        "summary_changed": before["summary"] != after["summary"],
-        "added_tags": [tag for tag in after_tags if tag not in role.tags],
+        "summary_changed": summary_changed,
+        "summary_before": before["summary"],
+        "summary_after": after["summary"],
+        "added_tags": added_tags,
         "suggestion_keys": list((suggested_profile or {}).keys()),
+        "changed_profile_fields": changed_profile_fields,
+        "total_changes": int(summary_changed) + len(added_tags) + len(changed_profile_fields),
+        "has_changes": bool(summary_changed or added_tags or changed_profile_fields),
     }
     return before, after, diff
 
@@ -1244,12 +1284,21 @@ async def revision_preview(report_id: str, body: RevisionPreviewRequest, request
         role = await _get_role(session, body.role_id, user_id)
         suggestions = report.customer_profile_suggestions if body.revision_type == "customer_refinement" else report.agent_profile_upgrade_suggestions
         before, after, diff = _merge_profile(role, suggestions or {})
+        change_reason = str(
+            (suggestions or {}).get("change_reason")
+            or (suggestions or {}).get("reason")
+            or (suggestions or {}).get("rationale")
+            or "根据本次复盘报告建议补充画像，等待用户确认应用。"
+        )
         return {
             "role_id": role.id,
+            "role_name": role.name,
+            "revision_type": body.revision_type,
+            "suggestions": suggestions or {},
             "before": before,
             "after": after,
             "diff": diff,
-            "change_reason": "根据本次复盘报告建议补充画像，等待用户确认应用。",
+            "change_reason": change_reason,
         }
 
 

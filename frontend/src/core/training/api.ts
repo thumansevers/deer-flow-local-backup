@@ -110,6 +110,9 @@ export interface TrainingReport {
 
 export interface RevisionPreview {
   role_id: string;
+  role_name?: string;
+  revision_type?: "customer_refinement" | "agent_upgrade";
+  suggestions?: Record<string, unknown>;
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   diff: Record<string, unknown>;
