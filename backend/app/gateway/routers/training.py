@@ -546,6 +546,8 @@ class SimulationRunRequest(BaseModel):
 
 class HumanTurnRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
+    speaker_type: SpeakerType = "agent"
+    allow_past_max_turns: bool = False
     model_name: str | None = Field(default=None, max_length=200)
     training_model: TrainingModelOverrideRequest | None = None
 
@@ -764,6 +766,7 @@ async def _next_turn(
     speaker_override: SpeakerType | None = None,
     model_name: str | None = None,
     custom_model: TrainingCustomModelRequest | None = None,
+    end_at_max_turns: bool = True,
 ) -> SimulationMessageRow:
     customer = await _get_role(session_db, session_row.customer_role_id, user_id)
     agent = await _get_role(session_db, session_row.agent_role_id, user_id)
@@ -794,33 +797,39 @@ async def _next_turn(
     session_row.started_at = session_row.started_at or _now()
     session_row.current_turn += 1
     session_row.updated_at = _now()
-    if session_row.current_turn >= session_row.max_turns:
+    if end_at_max_turns and session_row.current_turn >= session_row.max_turns:
         session_row.status = "ended"
         session_row.ended_at = _now()
     return message
 
 
-async def _human_agent_turn(
+async def _human_turn(
     session_db: Any,
     session_row: SimulationSessionRow,
     user_id: str | None,
     content: str,
+    speaker: SpeakerType,
+    allow_past_max_turns: bool = False,
     model_name: str | None = None,
     custom_model: TrainingCustomModelRequest | None = None,
 ) -> tuple[SimulationMessageRow, SimulationMessageRow | None]:
-    if session_row.status in {"ended", "completed"}:
+    if session_row.status in {"ended", "completed"} and not allow_past_max_turns:
         raise HTTPException(status_code=400, detail="Simulation is already ended")
 
-    agent = await _get_role(session_db, session_row.agent_role_id, user_id)
+    role = await _get_role(
+        session_db,
+        session_row.customer_role_id if speaker == "customer" else session_row.agent_role_id,
+        user_id,
+    )
     human_message = SimulationMessageRow(
         id=_new_id("msg"),
         session_id=session_row.id,
         user_id=user_id,
-        speaker_type="agent",
-        speaker_role_id=agent.id,
+        speaker_type=speaker,
+        speaker_role_id=role.id,
         content=content.strip(),
         turn_index=session_row.current_turn + 1,
-        raw_response={"source": "human_agent"},
+        raw_response={"source": f"human_{speaker}"},
     )
     session_db.add(human_message)
     session_row.status = "running"
@@ -828,13 +837,22 @@ async def _human_agent_turn(
     session_row.current_turn += 1
     session_row.updated_at = _now()
 
-    if session_row.current_turn >= session_row.max_turns:
+    if not allow_past_max_turns and session_row.current_turn >= session_row.max_turns:
         session_row.status = "ended"
         session_row.ended_at = _now()
         return human_message, None
 
-    customer_message = await _next_turn(session_db, session_row, user_id, speaker_override="customer", model_name=model_name, custom_model=custom_model)
-    return human_message, customer_message
+    ai_speaker: SpeakerType = "agent" if speaker == "customer" else "customer"
+    ai_message = await _next_turn(
+        session_db,
+        session_row,
+        user_id,
+        speaker_override=ai_speaker,
+        model_name=model_name,
+        custom_model=custom_model,
+        end_at_max_turns=not allow_past_max_turns,
+    )
+    return human_message, ai_message
 
 
 @router.post("/roles/parse")
@@ -1071,11 +1089,13 @@ async def human_turn(session_id: str, body: HumanTurnRequest, request: Request) 
     user_id = await _user_id(request)
     async with _session_factory()() as session:
         row = await _get_session_row(session, session_id, user_id)
-        human_message, customer_message = await _human_agent_turn(
+        human_message, ai_message = await _human_turn(
             session,
             row,
             user_id,
             body.content,
+            body.speaker_type,
+            body.allow_past_max_turns,
             model_name=_body_model_name(body),
             custom_model=_body_custom_model(body),
         )
@@ -1083,7 +1103,8 @@ async def human_turn(session_id: str, body: HumanTurnRequest, request: Request) 
         await session.refresh(row)
         return {
             "human_message": _row_dict(human_message),
-            "customer_message": _row_dict(customer_message) if customer_message is not None else None,
+            "customer_message": _row_dict(ai_message) if ai_message is not None else None,
+            "ai_message": _row_dict(ai_message) if ai_message is not None else None,
             "session_status": row.status,
             "session": _row_dict(row),
         }

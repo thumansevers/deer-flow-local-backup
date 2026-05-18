@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   type TrainingRole,
   type TrainingRoleType,
   type TrainingScenario,
+  type TrainingSpeakerType,
   type TrainingSimulation,
 } from "@/core/training/api";
 import { buildTrainingModelOverride } from "@/core/training/settings";
@@ -46,6 +47,121 @@ import {
   showError,
 } from "../training-components";
 
+type PracticeMode = "ai_auto" | "user_as_agent" | "user_as_customer";
+
+interface SimulationOptions {
+  practiceMode: PracticeMode;
+  minTurns: number;
+}
+
+const defaultSimulationOptions: SimulationOptions = {
+  practiceMode: "user_as_agent",
+  minTurns: 12,
+};
+
+const practiceModes: Array<{
+  value: PracticeMode;
+  title: string;
+  description: string;
+}> = [
+  {
+    value: "ai_auto",
+    title: "AI 双方对话",
+    description: "客户和代理人都由 AI 扮演，进入训练页后自动跑完整场。",
+  },
+  {
+    value: "user_as_agent",
+    title: "我扮演代理人",
+    description: "你输入代理人话术，AI 客户逐轮回应。",
+  },
+  {
+    value: "user_as_customer",
+    title: "我扮演客户",
+    description: "你输入客户反馈，AI 代理人练习回应。",
+  },
+];
+
+function simulationOptionsKey(simulationId: string) {
+  return `insurance-training:simulation-options:${simulationId}`;
+}
+
+function saveSimulationOptions(
+  simulationId: string,
+  options: SimulationOptions,
+) {
+  window.localStorage.setItem(
+    simulationOptionsKey(simulationId),
+    JSON.stringify(options),
+  );
+}
+
+function readSimulationOptions(
+  simulationId: string,
+  fallbackTurns?: number,
+): SimulationOptions {
+  if (typeof window === "undefined") {
+    return {
+      ...defaultSimulationOptions,
+      minTurns: fallbackTurns ?? defaultSimulationOptions.minTurns,
+    };
+  }
+  try {
+    const raw = window.localStorage.getItem(simulationOptionsKey(simulationId));
+    if (!raw) throw new Error("No stored simulation options");
+    const parsed = JSON.parse(raw) as Partial<SimulationOptions>;
+    const practiceMode: PracticeMode = practiceModes.some(
+      (mode) => mode.value === parsed.practiceMode,
+    )
+      ? parsed.practiceMode!
+      : defaultSimulationOptions.practiceMode;
+    const parsedMinTurns = Number(parsed.minTurns);
+    return {
+      practiceMode,
+      minTurns:
+        Number.isFinite(parsedMinTurns) && parsedMinTurns > 0
+          ? parsedMinTurns
+          : (fallbackTurns ?? defaultSimulationOptions.minTurns),
+    };
+  } catch {
+    return {
+      ...defaultSimulationOptions,
+      minTurns: fallbackTurns ?? defaultSimulationOptions.minTurns,
+    };
+  }
+}
+
+function isSimulationEnded(simulation: TrainingSimulation | null) {
+  if (!simulation) return false;
+  return (
+    simulation.status === "ended" ||
+    simulation.status === "completed" ||
+    simulation.current_turn >= simulation.max_turns
+  );
+}
+
+function canReviewSimulation(
+  simulation: TrainingSimulation | null,
+  options: SimulationOptions,
+) {
+  if (!simulation) return false;
+  if (options.practiceMode === "ai_auto") return isSimulationEnded(simulation);
+  return simulation.current_turn >= options.minTurns;
+}
+
+function reviewLockText(
+  simulation: TrainingSimulation | null,
+  options: SimulationOptions,
+) {
+  if (!simulation) return "对练加载完成后可判断复盘条件。";
+  if (options.practiceMode === "ai_auto") {
+    return "AI 双方对话完成后即可复盘。";
+  }
+  const remaining = Math.max(0, options.minTurns - simulation.current_turn);
+  return remaining
+    ? `还差 ${remaining} 轮可复盘。`
+    : "已达到最小轮数，可以复盘。";
+}
+
 export function SimulationSetup() {
   const router = useRouter();
   const [settings] = useLocalSettings();
@@ -54,6 +170,8 @@ export function SimulationSetup() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedScenarioId, setSelectedScenarioId] = useState("");
+  const [practiceMode, setPracticeMode] =
+    useState<PracticeMode>("user_as_agent");
   const [maxTurns, setMaxTurns] = useState(12);
   const [busy, setBusy] = useState(false);
 
@@ -102,6 +220,10 @@ export function SimulationSetup() {
         max_turns: maxTurns,
         training_model: buildTrainingModelOverride(settings.training),
       });
+      saveSimulationOptions(session.id, {
+        practiceMode,
+        minTurns: maxTurns,
+      });
       toast.success("对练已创建");
       router.push(`/workspace/training/simulations/${session.id}`);
     } catch (error) {
@@ -116,7 +238,7 @@ export function SimulationSetup() {
       <PageHeader
         icon={PlayIcon}
         title="配置对练"
-        description="先选定客户、代理人、训练场景和轮数，再进入独立的对话训练页面。"
+        description="先选定对练模式、客户、代理人、训练场景和轮数，再进入独立的对话训练页面。"
       >
         <Button variant="outline" size="sm" asChild>
           <Link href="/workspace/training/simulations">
@@ -129,7 +251,33 @@ export function SimulationSetup() {
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-5">
           <SelectionPanel
-            title="1. 选择模拟客户"
+            title="1. 选择对练模式"
+            description="模式会决定进入对话页后的启动方式，以及复盘何时解锁。"
+            icon={MessageSquareTextIcon}
+          >
+            <div className="grid gap-3 lg:grid-cols-3">
+              {practiceModes.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  className={cn(
+                    "bg-background hover:border-foreground/40 rounded-md border p-4 text-left transition",
+                    practiceMode === mode.value &&
+                      "border-foreground ring-foreground/10 shadow-sm ring-1",
+                  )}
+                  onClick={() => setPracticeMode(mode.value)}
+                >
+                  <div className="text-sm font-semibold">{mode.title}</div>
+                  <p className="text-muted-foreground mt-2 text-xs leading-5">
+                    {mode.description}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </SelectionPanel>
+
+          <SelectionPanel
+            title="2. 选择模拟客户"
             description="客户会决定异议、情绪、防备程度和信息释放节奏。"
             icon={UserRoundIcon}
           >
@@ -154,7 +302,7 @@ export function SimulationSetup() {
           </SelectionPanel>
 
           <SelectionPanel
-            title="2. 选择模拟代理人"
+            title="3. 选择模拟代理人"
             description="代理人角色用于设定销售风格、能力阶段和话术习惯。"
             icon={BotIcon}
           >
@@ -179,7 +327,7 @@ export function SimulationSetup() {
           </SelectionPanel>
 
           <SelectionPanel
-            title="3. 选择训练场景"
+            title="4. 选择训练场景"
             description="场景会约束训练目标、合规边界和复盘观察点。"
             icon={FileTextIcon}
           >
@@ -211,12 +359,18 @@ export function SimulationSetup() {
             description="确认配置后进入对话训练页面。"
           />
           <div className="mt-4 grid gap-3">
+            <SelectedLine
+              label="模式"
+              value={
+                practiceModes.find((mode) => mode.value === practiceMode)?.title
+              }
+            />
             <SelectedLine label="客户" value={selectedCustomer?.name} />
             <SelectedLine label="代理人" value={selectedAgent?.name} />
             <SelectedLine label="场景" value={selectedScenario?.name} />
             <label className="block min-w-0 space-y-1.5">
               <span className="text-muted-foreground text-xs font-medium">
-                对话轮数
+                {practiceMode === "ai_auto" ? "自动对话轮数" : "最小复盘轮数"}
               </span>
               <Input
                 type="number"
@@ -250,8 +404,12 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
   const [roles, setRoles] = useState<TrainingRole[]>([]);
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
   const [simulation, setSimulation] = useState<TrainingSimulation | null>(null);
+  const [options, setOptions] = useState<SimulationOptions>(
+    defaultSimulationOptions,
+  );
   const [agentInput, setAgentInput] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const autoStartedRef = useRef(false);
 
   const customer = roles.find(
     (role) => role.id === simulation?.customer_role_id,
@@ -260,6 +418,20 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
   const scenario = scenarios.find(
     (item) => item.id === simulation?.scenario_id,
   );
+  const canReview = canReviewSimulation(simulation, options);
+  const isAutoMode = options.practiceMode === "ai_auto";
+  const humanSpeaker: TrainingSpeakerType =
+    options.practiceMode === "user_as_customer" ? "customer" : "agent";
+  const humanLabel =
+    options.practiceMode === "user_as_customer" ? "客户" : "代理人";
+  const aiResponseLabel =
+    options.practiceMode === "user_as_customer"
+      ? "代理人正在回应"
+      : "客户正在思考";
+  const inputPlaceholder =
+    options.practiceMode === "user_as_customer"
+      ? "输入你要表达的客户反馈，例如：我还是担心长期缴费压力，万一以后收入下降怎么办？"
+      : "输入你要对客户说的话，例如：我先不急着介绍产品，想了解一下您现在最担心的家庭风险是什么？";
 
   const reload = useCallback(async () => {
     const [nextRoles, nextScenarios, nextSimulation] = await Promise.all([
@@ -270,6 +442,7 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
     setRoles(nextRoles);
     setScenarios(nextScenarios);
     setSimulation(nextSimulation);
+    setOptions(readSimulationOptions(simulationId, nextSimulation.max_turns));
   }, [simulationId]);
 
   useEffect(() => {
@@ -277,33 +450,36 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
     void reload().catch(showError);
   }, [reload]);
 
-  function appendMessages(
-    session: TrainingSimulation,
-    messages: TrainingMessage[],
-  ) {
-    setSimulation((current) => ({
-      ...session,
-      reports: current?.reports,
-      messages: [...(current?.messages ?? []), ...messages],
-    }));
-  }
+  const appendMessages = useCallback(
+    (session: TrainingSimulation, messages: TrainingMessage[]) => {
+      setSimulation((current) => ({
+        ...session,
+        reports: current?.reports,
+        messages: [...(current?.messages ?? []), ...messages],
+      }));
+    },
+    [],
+  );
 
-  function replacePendingMessage(
-    session: TrainingSimulation,
-    pendingId: string,
-    messages: TrainingMessage[],
-  ) {
-    setSimulation((current) => ({
-      ...session,
-      reports: current?.reports,
-      messages: [
-        ...(current?.messages ?? []).filter(
-          (message) => message.id !== pendingId,
-        ),
-        ...messages,
-      ],
-    }));
-  }
+  const replacePendingMessage = useCallback(
+    (
+      session: TrainingSimulation,
+      pendingId: string,
+      messages: TrainingMessage[],
+    ) => {
+      setSimulation((current) => ({
+        ...session,
+        reports: current?.reports,
+        messages: [
+          ...(current?.messages ?? []).filter(
+            (message) => message.id !== pendingId,
+          ),
+          ...messages,
+        ],
+      }));
+    },
+    [],
+  );
 
   async function sendHumanTurn() {
     if (!simulation) return;
@@ -317,7 +493,7 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
       const pendingMessage: TrainingMessage = {
         id: pendingId,
         session_id: simulation.id,
-        speaker_type: "agent",
+        speaker_type: humanSpeaker,
         content,
         turn_index: (simulation.current_turn ?? 0) + 1,
       };
@@ -327,10 +503,13 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
         simulation.id,
         content,
         buildTrainingModelOverride(settings.training),
+        humanSpeaker,
+        true,
       );
+      const aiMessage = result.ai_message ?? result.customer_message;
       replacePendingMessage(result.session, pendingId, [
         result.human_message,
-        ...(result.customer_message ? [result.customer_message] : []),
+        ...(aiMessage ? [aiMessage] : []),
       ]);
     } catch (error) {
       showError(error);
@@ -366,6 +545,46 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
     }
   }
 
+  const runAutoConversation = useCallback(
+    async (startSimulation: TrainingSimulation) => {
+      if (busy || isSimulationEnded(startSimulation)) return;
+      setBusy("auto-run");
+      let working = startSimulation;
+      try {
+        while (
+          working.current_turn < working.max_turns &&
+          !isSimulationEnded(working)
+        ) {
+          const result = await trainingApi.nextTurn(
+            working.id,
+            buildTrainingModelOverride(settings.training),
+          );
+          working = result.session;
+          appendMessages(result.session, [result.message]);
+        }
+        await reload();
+      } catch (error) {
+        showError(error);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [appendMessages, busy, reload, settings.training],
+  );
+
+  useEffect(() => {
+    if (
+      options.practiceMode !== "ai_auto" ||
+      !simulation ||
+      autoStartedRef.current ||
+      isSimulationEnded(simulation)
+    ) {
+      return;
+    }
+    autoStartedRef.current = true;
+    void runAutoConversation(simulation);
+  }, [options.practiceMode, runAutoConversation, simulation]);
+
   return (
     <>
       <PageHeader
@@ -380,14 +599,21 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
               返回对练库
             </Link>
           </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link
-              href={`/workspace/training/simulations/${simulationId}/review`}
-            >
+          {canReview ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link
+                href={`/workspace/training/simulations/${simulationId}/review`}
+              >
+                <BadgeCheckIcon className="size-4" />
+                进入复盘
+              </Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
               <BadgeCheckIcon className="size-4" />
-              进入复盘
-            </Link>
-          </Button>
+              复盘未解锁
+            </Button>
+          )}
         </div>
       </PageHeader>
 
@@ -396,9 +622,17 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
           <SectionTitle
             icon={PlayIcon}
             title="本场配置"
-            description="角色和轮数在创建对练时已固定。"
+            description="对练模式、角色和轮数在创建对练时已固定。"
           />
           <div className="mt-4 grid gap-3">
+            <SelectedLine
+              label="模式"
+              value={
+                practiceModes.find(
+                  (mode) => mode.value === options.practiceMode,
+                )?.title
+              }
+            />
             <SelectedLine label="客户" value={customer?.name} />
             <SelectedLine label="代理人" value={agent?.name} />
             <SelectedLine label="场景" value={scenario?.name} />
@@ -410,18 +644,28 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
                   : "加载中"
               }
             />
-            <Button
-              variant="outline"
-              disabled={!simulation || busy === "next-turn"}
-              onClick={() => void generateNextTurn()}
-            >
-              {busy === "next-turn" ? (
-                <Loader2Icon className="size-4 animate-spin" />
-              ) : (
-                <SparklesIcon className="size-4" />
-              )}
-              自动生成下一句
-            </Button>
+            <p className="text-muted-foreground text-xs leading-5">
+              {reviewLockText(simulation, options)}
+            </p>
+            {isAutoMode && (
+              <Button
+                variant="outline"
+                disabled={
+                  !simulation ||
+                  busy === "next-turn" ||
+                  busy === "auto-run" ||
+                  isSimulationEnded(simulation)
+                }
+                onClick={() => void generateNextTurn()}
+              >
+                {busy === "next-turn" || busy === "auto-run" ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <SparklesIcon className="size-4" />
+                )}
+                {busy === "auto-run" ? "自动对练中" : "继续自动生成"}
+              </Button>
+            )}
           </div>
         </Panel>
 
@@ -429,68 +673,97 @@ export function SimulationPractice({ simulationId }: { simulationId: string }) {
           <SectionTitle
             icon={MessageSquareTextIcon}
             title="对话过程"
-            description="输入你的代理人话术，客户会逐轮回应。"
+            description={
+              isAutoMode
+                ? "AI 客户和 AI 代理人会进入页面后自动逐轮对话。"
+                : `输入你的${humanLabel}话术，系统会等待另一方回应。`
+            }
           />
           <div className="bg-muted/10 mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto rounded-md border p-4">
             {simulation?.messages?.length ? (
               <>
                 {simulation.messages.map((message) => (
-                  <ChatBubble key={message.id} message={message} />
+                  <ChatBubble
+                    key={message.id}
+                    message={message}
+                    viewerSpeaker={isAutoMode ? null : humanSpeaker}
+                    alignSpeaker={isAutoMode ? "agent" : humanSpeaker}
+                  />
                 ))}
                 {(busy === "manual-turn" || busy === "next-turn") && (
                   <LoadingBubble
                     label={
-                      busy === "manual-turn" ? "客户正在思考" : "正在生成下一句"
+                      busy === "manual-turn"
+                        ? aiResponseLabel
+                        : "正在生成下一句"
                     }
                   />
                 )}
+                {busy === "auto-run" && (
+                  <LoadingBubble label="AI 正在继续对话" />
+                )}
               </>
-            ) : busy === "manual-turn" || busy === "next-turn" ? (
+            ) : busy === "manual-turn" ||
+              busy === "next-turn" ||
+              busy === "auto-run" ? (
               <LoadingBubble
                 label={
-                  busy === "manual-turn" ? "客户正在思考" : "正在生成第一句"
+                  busy === "manual-turn"
+                    ? aiResponseLabel
+                    : isAutoMode
+                      ? "AI 正在开始对话"
+                      : "正在生成第一句"
                 }
               />
             ) : (
               <EmptyState
                 icon={MessageSquareTextIcon}
                 title="还没有对话"
-                description="输入一句代理人话术，或点击左侧“自动生成下一句”。"
+                description={
+                  isAutoMode
+                    ? "进入页面后系统会自动开始 AI 双方对话。"
+                    : `输入一句${humanLabel}话术后，另一方会逐轮回应。`
+                }
               />
             )}
           </div>
 
-          <div className="bg-background mt-4 rounded-md border p-3">
-            <Textarea
-              rows={3}
-              value={agentInput}
-              placeholder="输入你要对客户说的话，例如：我先不急着介绍产品，想了解一下您现在最担心的家庭风险是什么？"
-              disabled={busy === "manual-turn"}
-              onChange={(event) => setAgentInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  void sendHumanTurn();
-                }
-              }}
-            />
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="text-muted-foreground text-xs">
-                Ctrl/⌘ + Enter 发送。请求最多等待 10 分钟。
+          {!isAutoMode && (
+            <div className="bg-background mt-4 rounded-md border p-3">
+              <Textarea
+                rows={3}
+                value={agentInput}
+                placeholder={inputPlaceholder}
+                disabled={busy === "manual-turn"}
+                onChange={(event) => setAgentInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    void sendHumanTurn();
+                  }
+                }}
+              />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-muted-foreground text-xs">
+                  Ctrl/⌘ + Enter 发送。请求最多等待 10 分钟。
+                </div>
+                <Button
+                  disabled={!agentInput.trim() || busy === "manual-turn"}
+                  onClick={() => void sendHumanTurn()}
+                >
+                  {busy === "manual-turn" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <MessageSquareTextIcon className="size-4" />
+                  )}
+                  发送并等待{humanSpeaker === "customer" ? "代理人" : "客户"}
+                </Button>
               </div>
-              <Button
-                disabled={!agentInput.trim() || busy === "manual-turn"}
-                onClick={() => void sendHumanTurn()}
-              >
-                {busy === "manual-turn" ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <MessageSquareTextIcon className="size-4" />
-                )}
-                发送并等待客户
-              </Button>
             </div>
-          </div>
+          )}
         </Panel>
       </div>
     </>
@@ -502,6 +775,9 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
   const [roles, setRoles] = useState<TrainingRole[]>([]);
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
   const [simulation, setSimulation] = useState<TrainingSimulation | null>(null);
+  const [options, setOptions] = useState<SimulationOptions>(
+    defaultSimulationOptions,
+  );
   const [activeReport, setActiveReport] = useState<TrainingReport | null>(null);
   const [revisionPreview, setRevisionPreview] =
     useState<RevisionPreview | null>(null);
@@ -514,6 +790,7 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
   const scenario = scenarios.find(
     (item) => item.id === simulation?.scenario_id,
   );
+  const canReview = canReviewSimulation(simulation, options);
 
   const reload = useCallback(async () => {
     const [nextRoles, nextScenarios, nextSimulation] = await Promise.all([
@@ -524,6 +801,7 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
     setRoles(nextRoles);
     setScenarios(nextScenarios);
     setSimulation(nextSimulation);
+    setOptions(readSimulationOptions(simulationId, nextSimulation.max_turns));
     setActiveReport(nextSimulation.reports?.[0] ?? null);
   }, [simulationId]);
 
@@ -534,6 +812,10 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
 
   async function createReview() {
     if (!simulation) return;
+    if (!canReview) {
+      toast.error(reviewLockText(simulation, options));
+      return;
+    }
     setBusy("review");
     try {
       const report = await trainingApi.createReview(
@@ -611,7 +893,7 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
           </Button>
           <Button
             size="sm"
-            disabled={!simulation || busy === "review"}
+            disabled={!simulation || !canReview || busy === "review"}
             onClick={() => void createReview()}
           >
             {busy === "review" ? (
@@ -636,6 +918,14 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
             <SelectedLine label="代理人" value={agent?.name} />
             <SelectedLine label="场景" value={scenario?.name} />
             <SelectedLine
+              label="模式"
+              value={
+                practiceModes.find(
+                  (mode) => mode.value === options.practiceMode,
+                )?.title
+              }
+            />
+            <SelectedLine
               label="对话轮数"
               value={
                 simulation
@@ -643,6 +933,9 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
                   : "加载中"
               }
             />
+            <p className="text-muted-foreground text-xs leading-5">
+              {reviewLockText(simulation, options)}
+            </p>
             {activeReport && (
               <>
                 <Button
@@ -671,8 +964,12 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
             {!activeReport ? (
               <EmptyState
                 icon={BadgeCheckIcon}
-                title="暂无复盘报告"
-                description="点击右上角“生成复盘”，系统会基于当前对话输出评分、优秀话术和下一步建议。"
+                title={canReview ? "暂无复盘报告" : "复盘尚未解锁"}
+                description={
+                  canReview
+                    ? "点击右上角“生成复盘”，系统会基于当前对话输出评分、优秀话术和下一步建议。"
+                    : reviewLockText(simulation, options)
+                }
               />
             ) : (
               <ReviewReportView report={activeReport} />
@@ -738,22 +1035,38 @@ function SelectionGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 lg:grid-cols-2">{children}</div>;
 }
 
-function ChatBubble({ message }: { message: TrainingMessage }) {
+function ChatBubble({
+  message,
+  viewerSpeaker,
+  alignSpeaker,
+}: {
+  message: TrainingMessage;
+  viewerSpeaker: TrainingSpeakerType | null;
+  alignSpeaker: TrainingSpeakerType;
+}) {
+  const speakerLabel =
+    viewerSpeaker && message.speaker_type === viewerSpeaker
+      ? "我"
+      : message.speaker_type === "customer"
+        ? "客户"
+        : "代理人";
   return (
     <div
-      className={cn("flex", message.speaker_type === "agent" && "justify-end")}
+      className={cn(
+        "flex",
+        message.speaker_type === alignSpeaker && "justify-end",
+      )}
     >
       <div
         className={cn(
           "max-w-[82%] rounded-md px-3 py-2 text-sm leading-6",
-          message.speaker_type === "customer"
-            ? "bg-muted"
-            : "bg-primary text-primary-foreground",
+          message.speaker_type === alignSpeaker
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted",
         )}
       >
         <div className="mb-1 text-xs opacity-70">
-          {message.speaker_type === "customer" ? "客户" : "我"} · 第{" "}
-          {message.turn_index} 句
+          {speakerLabel} · 第 {message.turn_index} 句
         </div>
         {message.content}
       </div>

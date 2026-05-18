@@ -236,15 +236,23 @@ export const trainingApi = {
     id: string,
     content: string,
     trainingModel?: TrainingModelOverride,
+    speakerType: TrainingSpeakerType = "agent",
+    allowPastMaxTurns = false,
   ) =>
     request<{
       human_message: TrainingMessage;
       customer_message: TrainingMessage | null;
+      ai_message?: TrainingMessage | null;
       session_status: string;
       session: TrainingSimulation;
     }>(`/simulations/${id}/human-turn`, {
       method: "POST",
-      body: JSON.stringify({ content, training_model: trainingModel }),
+      body: JSON.stringify({
+        content,
+        speaker_type: speakerType,
+        allow_past_max_turns: allowPastMaxTurns,
+        training_model: trainingModel,
+      }),
     }),
   getSimulation: (id: string) =>
     request<TrainingSimulation>(`/simulations/${id}`),
