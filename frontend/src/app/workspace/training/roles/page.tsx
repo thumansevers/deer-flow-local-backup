@@ -2,55 +2,35 @@
 
 import {
   BotIcon,
+  PencilIcon,
+  PlusIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
-  SparklesIcon,
   Trash2Icon,
   UserRoundIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useLocalSettings } from "@/core/settings";
-import {
-  trainingApi,
-  type TrainingRole,
-  type TrainingRoleType,
-} from "@/core/training/api";
-import { buildTrainingModelOverride } from "@/core/training/settings";
-import { cn } from "@/lib/utils";
+import { trainingApi, type TrainingRole } from "@/core/training/api";
 
 import {
-  avatarUrls,
   EmptyState,
-  FieldBlock,
   MetricTile,
   PageHeader,
   Panel,
-  parseJsonObject,
-  pretty,
-  roleDefaults,
   RoleCard,
   RoleDetailDialog,
   SectionTitle,
   showError,
-  splitTags,
 } from "../training-components";
 
 export default function TrainingRolesPage() {
-  const [settings] = useLocalSettings();
   const [roles, setRoles] = useState<TrainingRole[]>([]);
-  const [activeRoleType, setActiveRoleType] =
-    useState<TrainingRoleType>("customer");
-  const [roleName, setRoleName] = useState("谨慎型宝妈客户");
-  const [roleDescription, setRoleDescription] = useState(roleDefaults.customer);
-  const [roleSummary, setRoleSummary] = useState("");
-  const [roleTags, setRoleTags] = useState("");
-  const [roleProfileJson, setRoleProfileJson] = useState("{}");
-  const [avatarUrl, setAvatarUrl] = useState(avatarUrls[0] ?? "");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   const customers = useMemo(
@@ -61,6 +41,14 @@ export default function TrainingRolesPage() {
     () => roles.filter((role) => role.role_type === "agent"),
     [roles],
   );
+  const filteredCustomers = useMemo(
+    () => filterRoles(customers, query),
+    [customers, query],
+  );
+  const filteredAgents = useMemo(
+    () => filterRoles(agents, query),
+    [agents, query],
+  );
 
   async function reload() {
     setRoles(await trainingApi.roles());
@@ -70,77 +58,6 @@ export default function TrainingRolesPage() {
     document.title = "角色工厂 - DeerFlow";
     void reload().catch(showError);
   }, []);
-
-  function changeRoleType(type: TrainingRoleType) {
-    setActiveRoleType(type);
-    setRoleName(type === "customer" ? "谨慎型宝妈客户" : "共情型新人代理人");
-    setRoleDescription(roleDefaults[type]);
-    setRoleSummary("");
-    setRoleTags("");
-    setRoleProfileJson("{}");
-    setAvatarUrl(
-      type === "customer" ? (avatarUrls[0] ?? "") : (avatarUrls[5] ?? ""),
-    );
-  }
-
-  async function parseRole() {
-    setBusy("parse-role");
-    try {
-      const parsed = await trainingApi.parseRole({
-        role_type: activeRoleType,
-        name: roleName,
-        description: roleDescription,
-        training_model: buildTrainingModelOverride(settings.training),
-      });
-      if (parsed.name) setRoleName(parsed.name);
-      if (
-        parsed.detected_role_type &&
-        parsed.detected_role_type !== activeRoleType
-      ) {
-        setActiveRoleType(parsed.detected_role_type);
-        setAvatarUrl(
-          parsed.detected_role_type === "customer"
-            ? (avatarUrls[0] ?? "")
-            : (avatarUrls[5] ?? ""),
-        );
-        toast.info(
-          parsed.detected_role_type === "agent"
-            ? "已识别为代理人/规划师画像。"
-            : "已识别为客户画像。",
-        );
-      }
-      setRoleSummary(parsed.summary ?? "");
-      setRoleTags((parsed.tags ?? []).join("，"));
-      setRoleProfileJson(pretty(parsed.structured_profile));
-      if (parsed.parse_error)
-        toast.warning("AI JSON 解析不完整，已填入可编辑草稿。");
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveRole() {
-    setBusy("save-role");
-    try {
-      await trainingApi.createRole({
-        role_type: activeRoleType,
-        name: roleName,
-        description: roleDescription,
-        summary: roleSummary,
-        structured_profile: parseJsonObject(roleProfileJson),
-        tags: splitTags(roleTags),
-        avatar_url: avatarUrl,
-      });
-      toast.success("角色已保存");
-      await reload();
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function deleteRole(role: TrainingRole) {
     if (
@@ -167,16 +84,24 @@ export default function TrainingRolesPage() {
       <PageHeader
         icon={ShieldCheckIcon}
         title="角色工厂"
-        description="用自然语言创建模拟客户和模拟代理人，AI 负责拆解画像，你确认后保存为可复用训练角色。"
+        description="管理模拟客户和模拟代理人。新建或编辑画像时进入独立流程，避免长人物稿和 soul.md 挤在列表页。"
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void reload().catch(showError)}
-        >
-          <RefreshCwIcon className="size-4" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void reload().catch(showError)}
+          >
+            <RefreshCwIcon className="size-4" />
+            刷新
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/workspace/training/roles/new">
+              <PlusIcon className="size-4" />
+              新建角色
+            </Link>
+          </Button>
+        </div>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -193,132 +118,39 @@ export default function TrainingRolesPage() {
         />
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[520px_minmax(0,1fr)]">
-        <Panel>
+      <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionTitle
-            icon={SparklesIcon}
-            title="新建角色"
-            description="先描述业务直觉，再让模型补齐可编辑的结构化画像。"
+            icon={ShieldCheckIcon}
+            title="角色库"
+            description="点击卡片查看完整画像，进入编辑页可继续完善角色。"
           />
-
-          <div className="mt-4 flex gap-2">
-            {(["customer", "agent"] as const).map((type) => (
-              <Button
-                key={type}
-                variant={activeRoleType === type ? "default" : "outline"}
-                size="sm"
-                onClick={() => changeRoleType(type)}
-              >
-                {type === "customer" ? "客户角色" : "代理人角色"}
-              </Button>
-            ))}
-          </div>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
-            <div className="space-y-3">
-              <FieldBlock label="角色名称">
-                <Input
-                  value={roleName}
-                  onChange={(event) => setRoleName(event.target.value)}
-                />
-              </FieldBlock>
-              <div>
-                <div className="text-muted-foreground mb-2 text-xs font-medium">
-                  头像
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {avatarUrls
-                    .slice(
-                      activeRoleType === "customer" ? 0 : 5,
-                      activeRoleType === "customer" ? 5 : 10,
-                    )
-                    .map((url) => (
-                      <button
-                        type="button"
-                        key={url}
-                        onClick={() => setAvatarUrl(url)}
-                        className={cn(
-                          "bg-background hover:border-primary/60 rounded-md border p-1 transition-colors",
-                          avatarUrl === url && "border-primary bg-primary/5",
-                        )}
-                      >
-                        <img
-                          src={url}
-                          alt=""
-                          className="aspect-square rounded object-cover"
-                        />
-                      </button>
-                    ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <FieldBlock label="自然语言描述">
-                <Textarea
-                  rows={6}
-                  value={roleDescription}
-                  onChange={(event) => setRoleDescription(event.target.value)}
-                />
-              </FieldBlock>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={busy === "parse-role"}
-                  onClick={() => void parseRole()}
-                >
-                  <SparklesIcon className="size-4" />
-                  AI 解析
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={busy === "save-role"}
-                  onClick={() => void saveRole()}
-                >
-                  保存角色
-                </Button>
-              </div>
-              <FieldBlock label="一句话摘要">
-                <Input
-                  value={roleSummary}
-                  onChange={(event) => setRoleSummary(event.target.value)}
-                />
-              </FieldBlock>
-              <FieldBlock label="标签，用逗号分隔">
-                <Input
-                  value={roleTags}
-                  onChange={(event) => setRoleTags(event.target.value)}
-                />
-              </FieldBlock>
-              <FieldBlock label="结构化画像 JSON">
-                <Textarea
-                  className="font-mono text-xs"
-                  rows={9}
-                  value={roleProfileJson}
-                  onChange={(event) => setRoleProfileJson(event.target.value)}
-                />
-              </FieldBlock>
-            </div>
-          </div>
-        </Panel>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <RoleColumn
-            title="客户角色"
-            description="用于模拟真实客户的异议、关注点和沟通风格。"
-            roles={customers}
-            emptyTitle="还没有客户角色"
-            busy={busy}
-            onDelete={deleteRole}
-          />
-          <RoleColumn
-            title="代理人角色"
-            description="用于模拟不同能力阶段和销售风格的代理人。"
-            roles={agents}
-            emptyTitle="还没有代理人角色"
-            busy={busy}
-            onDelete={deleteRole}
+          <Input
+            className="w-full sm:w-72"
+            value={query}
+            placeholder="搜索名称、摘要或标签"
+            onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+      </Panel>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <RoleColumn
+          title="客户角色"
+          description="用于模拟真实客户的异议、关注点和沟通风格。"
+          roles={filteredCustomers}
+          emptyTitle="还没有客户角色"
+          busy={busy}
+          onDelete={deleteRole}
+        />
+        <RoleColumn
+          title="代理人角色"
+          description="用于模拟不同能力阶段和销售风格的代理人。"
+          roles={filteredAgents}
+          emptyTitle="还没有代理人角色"
+          busy={busy}
+          onDelete={deleteRole}
+        />
       </div>
     </>
   );
@@ -346,34 +178,59 @@ function RoleColumn({
         title={title}
         description={description}
       />
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 grid gap-3">
         {roles.length ? (
           roles.map((role) => (
             <div key={role.id} className="group relative">
               <RoleDetailDialog role={role}>
                 <RoleCard role={role} />
               </RoleDetailDialog>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 size-8 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                disabled={busy === `delete-role-${role.id}`}
-                title="删除角色"
-                onClick={() => onDelete(role)}
-              >
-                <Trash2Icon className="size-4" />
-              </Button>
+              <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="bg-background/90 size-8"
+                  title="编辑角色"
+                  asChild
+                >
+                  <Link href={`/workspace/training/roles/${role.id}`}>
+                    <PencilIcon className="size-4" />
+                  </Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="bg-background/90 size-8"
+                  disabled={busy === `delete-role-${role.id}`}
+                  title="删除角色"
+                  onClick={() => onDelete(role)}
+                >
+                  <Trash2Icon className="size-4" />
+                </Button>
+              </div>
             </div>
           ))
         ) : (
           <EmptyState
             icon={title.includes("客户") ? UserRoundIcon : BotIcon}
             title={emptyTitle}
-            description="保存左侧草稿后，这里会出现可选角色。"
+            description="点击“新建角色”进入完整创建流程。"
           />
         )}
       </div>
     </Panel>
+  );
+}
+
+function filterRoles(roles: TrainingRole[], query: string) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return roles;
+  return roles.filter((role) =>
+    [role.name, role.summary, role.description, ...(role.tags ?? [])]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword),
   );
 }

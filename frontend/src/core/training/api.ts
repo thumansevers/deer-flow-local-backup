@@ -160,6 +160,15 @@ export const trainingApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getRole: (id: string) => request<TrainingRole>(`/roles/${id}`),
+  updateRole: (
+    id: string,
+    body: Omit<TrainingRole, "id" | "version" | "updated_at">,
+  ) =>
+    request<TrainingRole>(`/roles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   deleteRole: (id: string) =>
     request<{ success: boolean }>(`/roles/${id}`, { method: "DELETE" }),
   scenarios: () => request<TrainingScenario[]>("/scenarios"),
@@ -182,6 +191,12 @@ export const trainingApi = {
   createScenario: (body: Omit<TrainingScenario, "id">) =>
     request<TrainingScenario>("/scenarios", {
       method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getScenario: (id: string) => request<TrainingScenario>(`/scenarios/${id}`),
+  updateScenario: (id: string, body: Omit<TrainingScenario, "id">) =>
+    request<TrainingScenario>(`/scenarios/${id}`, {
+      method: "PUT",
       body: JSON.stringify(body),
     }),
   deleteScenario: (id: string) =>

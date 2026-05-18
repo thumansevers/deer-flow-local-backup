@@ -3,51 +3,49 @@
 import {
   FileTextIcon,
   GaugeIcon,
+  PencilIcon,
+  PlusIcon,
   RefreshCwIcon,
-  SparklesIcon,
   TargetIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useLocalSettings } from "@/core/settings";
 import { trainingApi, type TrainingScenario } from "@/core/training/api";
-import { buildTrainingModelOverride } from "@/core/training/settings";
 
 import {
   EmptyState,
-  FieldBlock,
   MetricTile,
   PageHeader,
   Panel,
-  parseJsonObject,
-  pretty,
   ScenarioCard,
   ScenarioDetailDialog,
-  scenarioDefault,
   SectionTitle,
   showError,
 } from "../training-components";
 
 export default function TrainingScenariosPage() {
-  const [settings] = useLocalSettings();
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
-  const [scenarioName, setScenarioName] = useState("首次接触低信任客户");
-  const [scenarioDescription, setScenarioDescription] =
-    useState(scenarioDefault);
-  const [scenarioJson, setScenarioJson] = useState("{}");
-  const [scenarioMeta, setScenarioMeta] = useState({
-    summary: "",
-    sales_stage: "first_meeting",
-    product_type: "critical_illness",
-    difficulty: "medium",
-    recommended_turns: 8,
-  });
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+
+  const filteredScenarios = useMemo(
+    () => filterScenarios(scenarios, query),
+    [scenarios, query],
+  );
+  const defaultStage = scenarios[0]?.sales_stage ?? "未设置";
+  const averageTurns = scenarios.length
+    ? Math.round(
+        scenarios.reduce(
+          (sum, scenario) => sum + scenario.recommended_turns,
+          0,
+        ) / scenarios.length,
+      )
+    : 0;
 
   async function reload() {
     setScenarios(await trainingApi.scenarios());
@@ -57,53 +55,6 @@ export default function TrainingScenariosPage() {
     document.title = "场景工厂 - DeerFlow";
     void reload().catch(showError);
   }, []);
-
-  async function parseScenario() {
-    setBusy("parse-scenario");
-    try {
-      const parsed = await trainingApi.parseScenario({
-        name: scenarioName,
-        description: scenarioDescription,
-        training_model: buildTrainingModelOverride(settings.training),
-      });
-      setScenarioMeta({
-        summary: parsed.summary ?? "",
-        sales_stage: parsed.sales_stage ?? "first_meeting",
-        product_type: parsed.product_type ?? "critical_illness",
-        difficulty: parsed.difficulty ?? "medium",
-        recommended_turns: parsed.recommended_turns ?? 8,
-      });
-      setScenarioJson(pretty(parsed.structured_scenario));
-      if (parsed.parse_error)
-        toast.warning("AI JSON 解析不完整，已填入可编辑草稿。");
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveScenario() {
-    setBusy("save-scenario");
-    try {
-      await trainingApi.createScenario({
-        name: scenarioName,
-        description: scenarioDescription,
-        summary: scenarioMeta.summary,
-        sales_stage: scenarioMeta.sales_stage,
-        product_type: scenarioMeta.product_type,
-        difficulty: scenarioMeta.difficulty,
-        recommended_turns: scenarioMeta.recommended_turns,
-        structured_scenario: parseJsonObject(scenarioJson),
-      });
-      toast.success("场景已保存");
-      await reload();
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function deleteScenario(scenario: TrainingScenario) {
     if (
@@ -130,16 +81,24 @@ export default function TrainingScenariosPage() {
       <PageHeader
         icon={FileTextIcon}
         title="场景工厂"
-        description="把训练背景拆成销售阶段、客户状态、代理人目标和合规约束，后续可复用到不同角色组合。"
+        description="管理可复用训练场景。创建和编辑场景时进入独立流程，完整校准训练目标、客户状态和合规约束。"
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void reload().catch(showError)}
-        >
-          <RefreshCwIcon className="size-4" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void reload().catch(showError)}
+          >
+            <RefreshCwIcon className="size-4" />
+            刷新
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/workspace/training/scenarios/new">
+              <PlusIcon className="size-4" />
+              新建场景
+            </Link>
+          </Button>
+        </div>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -148,145 +107,56 @@ export default function TrainingScenariosPage() {
           label="训练场景"
           value={scenarios.length}
         />
-        <MetricTile
-          icon={TargetIcon}
-          label="默认阶段"
-          value={scenarioMeta.sales_stage || "未设置"}
-        />
+        <MetricTile icon={TargetIcon} label="最近阶段" value={defaultStage} />
         <MetricTile
           icon={GaugeIcon}
-          label="建议轮数"
-          value={`${scenarioMeta.recommended_turns} 轮`}
+          label="平均建议轮数"
+          value={averageTurns ? `${averageTurns} 轮` : "未设置"}
         />
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[520px_minmax(0,1fr)]">
-        <Panel>
-          <SectionTitle
-            icon={SparklesIcon}
-            title="新建场景"
-            description="用业务语言写训练意图，AI 会转换成可执行的训练约束。"
-          />
-
-          <div className="mt-4 space-y-3">
-            <FieldBlock label="场景名称">
-              <Input
-                value={scenarioName}
-                onChange={(event) => setScenarioName(event.target.value)}
-              />
-            </FieldBlock>
-            <FieldBlock label="自然语言描述">
-              <Textarea
-                rows={6}
-                value={scenarioDescription}
-                onChange={(event) => setScenarioDescription(event.target.value)}
-              />
-            </FieldBlock>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={busy === "parse-scenario"}
-                onClick={() => void parseScenario()}
-              >
-                <SparklesIcon className="size-4" />
-                AI 解析
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy === "save-scenario"}
-                onClick={() => void saveScenario()}
-              >
-                保存场景
-              </Button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FieldBlock label="销售阶段">
-                <Input
-                  value={scenarioMeta.sales_stage}
-                  onChange={(event) =>
-                    setScenarioMeta({
-                      ...scenarioMeta,
-                      sales_stage: event.target.value,
-                    })
-                  }
-                />
-              </FieldBlock>
-              <FieldBlock label="产品类型">
-                <Input
-                  value={scenarioMeta.product_type}
-                  onChange={(event) =>
-                    setScenarioMeta({
-                      ...scenarioMeta,
-                      product_type: event.target.value,
-                    })
-                  }
-                />
-              </FieldBlock>
-              <FieldBlock label="难度">
-                <Input
-                  value={scenarioMeta.difficulty}
-                  onChange={(event) =>
-                    setScenarioMeta({
-                      ...scenarioMeta,
-                      difficulty: event.target.value,
-                    })
-                  }
-                />
-              </FieldBlock>
-              <FieldBlock label="建议轮数">
-                <Input
-                  type="number"
-                  value={scenarioMeta.recommended_turns}
-                  onChange={(event) =>
-                    setScenarioMeta({
-                      ...scenarioMeta,
-                      recommended_turns: Number(event.target.value),
-                    })
-                  }
-                />
-              </FieldBlock>
-            </div>
-
-            <FieldBlock label="一句话摘要">
-              <Input
-                value={scenarioMeta.summary}
-                onChange={(event) =>
-                  setScenarioMeta({
-                    ...scenarioMeta,
-                    summary: event.target.value,
-                  })
-                }
-              />
-            </FieldBlock>
-            <FieldBlock label="结构化场景 JSON">
-              <Textarea
-                className="font-mono text-xs"
-                rows={10}
-                value={scenarioJson}
-                onChange={(event) => setScenarioJson(event.target.value)}
-              />
-            </FieldBlock>
-          </div>
-        </Panel>
-
-        <Panel>
+      <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionTitle
             icon={FileTextIcon}
             title="场景库"
-            description="对练页会从这里选择场景，和客户、代理人组合生成训练任务。"
+            description="点击卡片查看完整场景，进入编辑页可继续完善训练任务。"
           />
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {scenarios.length ? (
-              scenarios.map((scenario) => (
-                <div key={scenario.id} className="group relative">
-                  <ScenarioDetailDialog scenario={scenario}>
-                    <ScenarioCard scenario={scenario} />
-                  </ScenarioDetailDialog>
+          <Input
+            className="w-full sm:w-72"
+            value={query}
+            placeholder="搜索名称、阶段、产品或摘要"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+      </Panel>
+
+      <Panel>
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          {filteredScenarios.length ? (
+            filteredScenarios.map((scenario) => (
+              <div key={scenario.id} className="group relative">
+                <ScenarioDetailDialog scenario={scenario}>
+                  <ScenarioCard scenario={scenario} />
+                </ScenarioDetailDialog>
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute top-2 right-2 size-8 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                    className="bg-background/90 size-8"
+                    title="编辑场景"
+                    asChild
+                  >
+                    <Link href={`/workspace/training/scenarios/${scenario.id}`}>
+                      <PencilIcon className="size-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="bg-background/90 size-8"
                     disabled={busy === `delete-scenario-${scenario.id}`}
                     title="删除场景"
                     onClick={() => deleteScenario(scenario)}
@@ -294,19 +164,37 @@ export default function TrainingScenariosPage() {
                     <Trash2Icon className="size-4" />
                   </Button>
                 </div>
-              ))
-            ) : (
-              <div className="lg:col-span-2">
-                <EmptyState
-                  icon={FileTextIcon}
-                  title="还没有训练场景"
-                  description="保存左侧草稿后，这里会出现可选场景。"
-                />
               </div>
-            )}
-          </div>
-        </Panel>
-      </div>
+            ))
+          ) : (
+            <div className="lg:col-span-2 xl:col-span-3">
+              <EmptyState
+                icon={FileTextIcon}
+                title="还没有训练场景"
+                description="点击“新建场景”进入完整创建流程。"
+              />
+            </div>
+          )}
+        </div>
+      </Panel>
     </>
+  );
+}
+
+function filterScenarios(scenarios: TrainingScenario[], query: string) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return scenarios;
+  return scenarios.filter((scenario) =>
+    [
+      scenario.name,
+      scenario.summary,
+      scenario.description,
+      scenario.sales_stage,
+      scenario.product_type,
+      scenario.difficulty,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword),
   );
 }
