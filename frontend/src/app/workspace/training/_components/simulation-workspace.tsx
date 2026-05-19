@@ -884,6 +884,24 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
     }
   }
 
+  function updateRevisionSummary(value: string) {
+    setRevisionPreview((current) =>
+      current ? updateRevisionSummaryPreview(current, value) : current,
+    );
+  }
+
+  function updateRevisionTags(value: string) {
+    setRevisionPreview((current) =>
+      current ? updateRevisionTagsPreview(current, value) : current,
+    );
+  }
+
+  function updateRevisionField(key: string, value: string) {
+    setRevisionPreview((current) =>
+      current ? updateRevisionFieldPreview(current, key, value) : current,
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -995,6 +1013,9 @@ export function SimulationReview({ simulationId }: { simulationId: string }) {
             <RevisionPreviewPanel
               preview={revisionPreview}
               busy={busy === "apply-revision"}
+              onSummaryChange={updateRevisionSummary}
+              onTagsChange={updateRevisionTags}
+              onFieldChange={updateRevisionField}
               onApply={() => void applyRevision()}
               onClose={() => setRevisionPreview(null)}
             />
@@ -1107,19 +1128,152 @@ function previewText(value: unknown, fallback?: unknown) {
   return pretty(value);
 }
 
+function editableValueText(value: unknown) {
+  if (typeof value === "string") return value;
+  return pretty(value);
+}
+
+function parseEditedValue(previousValue: unknown, text: string) {
+  const trimmed = text.trim();
+  if (Array.isArray(previousValue)) {
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Use line splitting for quick edits to phrase lists.
+    }
+    return trimmed
+      .split(/\n+|[；;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (previousValue && typeof previousValue === "object") {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
+function splitEditableTags(value: string) {
+  return value
+    .split(/[,，\n]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function markRevisionEdited(diff: Record<string, unknown>) {
+  return {
+    ...diff,
+    has_changes: true,
+    total_changes: Math.max(1, Number(diff.total_changes ?? 0)),
+    edited_by_user: true,
+  };
+}
+
+function updateRevisionSummaryPreview(
+  preview: RevisionPreview,
+  value: string,
+): RevisionPreview {
+  return {
+    ...preview,
+    after: {
+      ...preview.after,
+      summary: value,
+    },
+    diff: markRevisionEdited({
+      ...preview.diff,
+      summary_changed: value !== previewText(preview.before.summary),
+      summary_after: value,
+    }),
+  };
+}
+
+function updateRevisionTagsPreview(
+  preview: RevisionPreview,
+  value: string,
+): RevisionPreview {
+  const beforeTags = Array.isArray(preview.before.tags)
+    ? preview.before.tags.map(String)
+    : [];
+  const addedTags = splitEditableTags(value);
+  return {
+    ...preview,
+    after: {
+      ...preview.after,
+      tags: [...beforeTags, ...addedTags],
+    },
+    diff: markRevisionEdited({
+      ...preview.diff,
+      added_tags: addedTags,
+    }),
+  };
+}
+
+function updateRevisionFieldPreview(
+  preview: RevisionPreview,
+  key: string,
+  value: string,
+): RevisionPreview {
+  const afterProfile = asRecord(preview.after.structured_profile);
+  const previousValue = afterProfile[key];
+  const nextValue = parseEditedValue(previousValue, value);
+  const changedFields = getChangedProfileFields(preview);
+  const nextChangedFields = changedFields.map((field) =>
+    field.key === key
+      ? {
+          ...field,
+          after: nextValue,
+          after_preview: value,
+        }
+      : field,
+  );
+  return {
+    ...preview,
+    after: {
+      ...preview.after,
+      structured_profile: {
+        ...afterProfile,
+        [key]: nextValue,
+      },
+    },
+    diff: markRevisionEdited({
+      ...preview.diff,
+      changed_profile_fields: nextChangedFields,
+    }),
+  };
+}
+
 function RevisionPreviewPanel({
   preview,
   busy,
+  onSummaryChange,
+  onTagsChange,
+  onFieldChange,
   onApply,
   onClose,
 }: {
   preview: RevisionPreview;
   busy: boolean;
+  onSummaryChange: (value: string) => void;
+  onTagsChange: (value: string) => void;
+  onFieldChange: (key: string, value: string) => void;
   onApply: () => void;
   onClose: () => void;
 }) {
   const hasChanges = revisionHasChanges(preview);
   const addedTags = getAddedTags(preview);
+  const hasTagSuggestion = Array.isArray(preview.diff.added_tags);
   const changedFields = getChangedProfileFields(preview);
   const summaryChange = getSummaryChange(preview);
 
@@ -1165,22 +1319,21 @@ function RevisionPreviewPanel({
               title="一句话摘要"
               before={summaryChange.before || "未填写摘要。"}
               after={summaryChange.after || "未填写摘要。"}
+              editable
+              onAfterChange={onSummaryChange}
             />
           )}
 
-          {addedTags.length > 0 && (
+          {hasTagSuggestion && (
             <div className="rounded-md border p-4">
               <div className="text-xs font-semibold">建议新增标签</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {addedTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="bg-muted text-muted-foreground rounded px-2 py-1 text-xs"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              <Textarea
+                className="mt-3 text-sm"
+                rows={Math.min(6, Math.max(3, addedTags.length))}
+                value={addedTags.join("\n")}
+                placeholder="一行一个标签，或用逗号分隔。"
+                onChange={(event) => onTagsChange(event.target.value)}
+              />
             </div>
           )}
 
@@ -1190,7 +1343,9 @@ function RevisionPreviewPanel({
                 key={field.key}
                 title={formatProfileFieldLabel(field.key)}
                 before={previewText(field.before_preview, field.before)}
-                after={previewText(field.after_preview, field.after)}
+                after={editableValueText(field.after)}
+                editable
+                onAfterChange={(value) => onFieldChange(field.key, value)}
               />
             ))}
           </div>
@@ -1235,17 +1390,26 @@ function RevisionChangeBlock({
   title,
   before,
   after,
+  editable,
+  onAfterChange,
 }: {
   title: string;
   before: string;
   after: string;
+  editable?: boolean;
+  onAfterChange?: (value: string) => void;
 }) {
   return (
     <section className="rounded-md border p-4">
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <RevisionTextBlock label="当前" text={before} muted />
-        <RevisionTextBlock label="建议更新为" text={after} />
+        <RevisionTextBlock
+          label="建议更新为"
+          text={after}
+          editable={editable}
+          onChange={onAfterChange}
+        />
       </div>
     </section>
   );
@@ -1255,22 +1419,34 @@ function RevisionTextBlock({
   label,
   text,
   muted,
+  editable,
+  onChange,
 }: {
   label: string;
   text: string;
   muted?: boolean;
+  editable?: boolean;
+  onChange?: (value: string) => void;
 }) {
   return (
     <div className="bg-muted/20 min-w-0 rounded-md border p-3">
       <div className="text-muted-foreground text-xs font-medium">{label}</div>
-      <p
-        className={cn(
-          "mt-2 max-h-44 overflow-y-auto text-sm leading-6 whitespace-pre-wrap",
-          muted && "text-muted-foreground",
-        )}
-      >
-        {text || "未填写。"}
-      </p>
+      {editable ? (
+        <Textarea
+          className="mt-2 min-h-28 text-sm leading-6"
+          value={text}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+      ) : (
+        <p
+          className={cn(
+            "mt-2 max-h-44 overflow-y-auto text-sm leading-6 whitespace-pre-wrap",
+            muted && "text-muted-foreground",
+          )}
+        >
+          {text || "未填写。"}
+        </p>
+      )}
     </div>
   );
 }
