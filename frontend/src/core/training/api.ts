@@ -86,6 +86,7 @@ export interface TrainingSimulation {
   max_turns: number;
   current_turn: number;
   summary?: string;
+  has_review?: boolean;
   messages?: TrainingMessage[];
   reports?: TrainingReport[];
 }

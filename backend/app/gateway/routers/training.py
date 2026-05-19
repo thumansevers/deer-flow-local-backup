@@ -1046,7 +1046,28 @@ async def list_simulations(request: Request) -> list[dict[str, Any]]:
     user_id = await _user_id(request)
     async with _session_factory()() as session:
         rows = (await session.execute(select(SimulationSessionRow).where(_owner_filter(SimulationSessionRow, user_id), SimulationSessionRow.status != "archived").order_by(SimulationSessionRow.updated_at.desc()).limit(30))).scalars().all()
-        return [_row_dict(row) for row in rows]
+        session_ids = [row.id for row in rows]
+        reviewed_session_ids: set[str] = set()
+        if session_ids:
+            reviewed_session_ids = set(
+                (
+                    await session.execute(
+                        select(ReviewReportRow.session_id).where(
+                            ReviewReportRow.session_id.in_(session_ids),
+                            _owner_filter(ReviewReportRow, user_id),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return [
+            {
+                **_row_dict(row),
+                "has_review": row.id in reviewed_session_ids,
+            }
+            for row in rows
+        ]
 
 
 @router.delete("/simulations/{session_id}")

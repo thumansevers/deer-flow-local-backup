@@ -178,7 +178,9 @@ export default function TrainingSimulationsPage() {
                     <span>
                       {simulation.current_turn}/{simulation.max_turns} 轮
                     </span>
-                    <span>{simulation.reports?.length ?? 0} 份复盘</span>
+                    <span>
+                      {hasReview(simulation) ? "已有复盘" : "暂未复盘"}
+                    </span>
                   </div>
                   <Button
                     variant="outline"
@@ -269,6 +271,10 @@ function simulationTitle(
   if (practiceMode === "user_as_agent") return `用户 × ${customer}`;
   if (practiceMode === "user_as_customer") return `用户 × ${agent}`;
   return `${customer} × ${agent}`;
+}
+
+function hasReview(simulation: TrainingSimulation) {
+  return simulation.has_review ?? Boolean(simulation.reports?.length);
 }
 
 function roleName(roles: TrainingRole[], id: string) {
