@@ -1343,13 +1343,14 @@ function LoadingBubble({ label }: { label: string }) {
 }
 
 function ReviewReportView({ report }: { report: TrainingReport }) {
+  const scores = normalizeScores(report.report.scores);
   return (
     <div className="space-y-4">
       <p className="bg-muted/20 rounded-md border p-4 text-sm leading-6">
         {report.summary}
       </p>
       <div className="grid gap-2 sm:grid-cols-4">
-        {Object.entries(report.report.scores ?? {}).map(([key, value]) => (
+        {scores.map(([key, value]) => (
           <div key={key} className="bg-background rounded-md border p-3">
             <div className="text-muted-foreground truncate text-xs">
               {formatScoreLabel(key)}
@@ -1371,6 +1372,18 @@ function ReviewReportView({ report }: { report: TrainingReport }) {
       </div>
     </div>
   );
+}
+
+function normalizeScores(scores: unknown): Array<[string, number | string]> {
+  if (!scores || typeof scores !== "object" || Array.isArray(scores)) {
+    return [];
+  }
+  return Object.entries(scores).map(([key, value]) => [
+    key,
+    typeof value === "number" || typeof value === "string"
+      ? value
+      : JSON.stringify(value),
+  ]);
 }
 
 const scoreLabels: Record<string, string> = {

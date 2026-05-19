@@ -460,14 +460,15 @@ export function ReportList({
   items,
 }: {
   title: string;
-  items?: string[];
+  items?: unknown;
 }) {
-  if (!items?.length) return null;
+  const normalizedItems = normalizeReportItems(items);
+  if (!normalizedItems.length) return null;
   return (
     <div className="rounded-md border p-3">
       <h3 className="mb-2 text-sm font-semibold">{title}</h3>
       <ul className="space-y-2">
-        {items.map((item, index) => (
+        {normalizedItems.map((item, index) => (
           <li key={`${title}-${index}`}>
             <ReportListItemDialog
               title={`${title} ${index + 1}`}
@@ -478,6 +479,46 @@ export function ReportList({
       </ul>
     </div>
   );
+}
+
+function normalizeReportItems(items: unknown): string[] {
+  if (!items) return [];
+  if (Array.isArray(items)) {
+    return items
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item && typeof item === "object") return pretty(item);
+        return String(item ?? "").trim();
+      })
+      .filter(Boolean);
+  }
+  if (typeof items === "string") {
+    return items
+      .split(/\n+|(?<=[。！？!?])\s*/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof items === "object") {
+    return Object.entries(items)
+      .map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `${key}：${value.map((item) => (typeof item === "string" ? item : pretty(item))).join("；")}`;
+        }
+        if (value && typeof value === "object") {
+          return `${key}：${pretty(value)}`;
+        }
+        return `${key}：${String(value ?? "").trim()}`;
+      })
+      .filter((item) => item.trim() !== "：");
+  }
+  if (
+    typeof items === "number" ||
+    typeof items === "boolean" ||
+    typeof items === "bigint"
+  ) {
+    return [String(items).trim()].filter(Boolean);
+  }
+  return [];
 }
 
 function ReportListItemDialog({
