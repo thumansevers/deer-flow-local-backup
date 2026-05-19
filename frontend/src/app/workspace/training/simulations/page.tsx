@@ -4,14 +4,17 @@ import {
   BotIcon,
   Clock3Icon,
   FileTextIcon,
+  Loader2Icon,
   MessageSquareTextIcon,
   PlayIcon,
   PlusIcon,
   RefreshCwIcon,
+  Trash2Icon,
   UserRoundIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +39,7 @@ export default function TrainingSimulationsPage() {
   const [scenarios, setScenarios] = useState<TrainingScenario[]>([]);
   const [simulations, setSimulations] = useState<TrainingSimulation[]>([]);
   const [query, setQuery] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const customers = useMemo(
     () => roles.filter((role) => role.role_type === "customer"),
@@ -65,6 +69,28 @@ export default function TrainingSimulationsPage() {
     document.title = "模拟对练 - DeerFlow";
     void reload().catch(showError);
   }, []);
+
+  async function deleteSimulation(simulation: TrainingSimulation) {
+    const customer = roleName(roles, simulation.customer_role_id);
+    const agent = roleName(roles, simulation.agent_role_id);
+    const confirmed = window.confirm(
+      `确定删除这条对练记录吗？\n\n${customer} × ${agent}\n删除后会从对练库隐藏。`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(simulation.id);
+    try {
+      await trainingApi.deleteSimulation(simulation.id);
+      setSimulations((current) =>
+        current.filter((item) => item.id !== simulation.id),
+      );
+      toast.success("对练记录已删除");
+    } catch (error) {
+      showError(error);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <>
@@ -126,32 +152,52 @@ export default function TrainingSimulationsPage() {
         <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
           {filteredSimulations.length ? (
             filteredSimulations.map((simulation) => (
-              <Link
+              <div
                 key={simulation.id}
-                href={`/workspace/training/simulations/${simulation.id}`}
-                className="hover:border-primary/40 hover:bg-muted/40 bg-background block rounded-md border p-4 transition-colors"
+                className="hover:border-primary/40 hover:bg-muted/40 bg-background rounded-md border p-4 transition-colors"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">
-                      {roleName(roles, simulation.customer_role_id)} ×{" "}
-                      {roleName(roles, simulation.agent_role_id)}
+                <Link
+                  href={`/workspace/training/simulations/${simulation.id}`}
+                  className="block min-w-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {roleName(roles, simulation.customer_role_id)} ×{" "}
+                        {roleName(roles, simulation.agent_role_id)}
+                      </div>
+                      <div className="text-muted-foreground mt-1 truncate text-xs">
+                        {scenarioName(scenarios, simulation.scenario_id)}
+                      </div>
                     </div>
-                    <div className="text-muted-foreground mt-1 truncate text-xs">
-                      {scenarioName(scenarios, simulation.scenario_id)}
-                    </div>
+                    <span className="text-muted-foreground bg-muted rounded px-2 py-1 text-xs">
+                      {formatStatus(simulation.status)}
+                    </span>
                   </div>
-                  <span className="text-muted-foreground bg-muted rounded px-2 py-1 text-xs">
-                    {formatStatus(simulation.status)}
-                  </span>
+                </Link>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="text-muted-foreground flex min-w-0 gap-3 text-xs">
+                    <span>
+                      {simulation.current_turn}/{simulation.max_turns} 轮
+                    </span>
+                    <span>{simulation.reports?.length ?? 0} 份复盘</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    disabled={deletingId === simulation.id}
+                    onClick={() => void deleteSimulation(simulation)}
+                  >
+                    {deletingId === simulation.id ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <Trash2Icon className="size-4" />
+                    )}
+                    删除
+                  </Button>
                 </div>
-                <div className="text-muted-foreground mt-4 flex items-center justify-between text-xs">
-                  <span>
-                    {simulation.current_turn}/{simulation.max_turns} 轮
-                  </span>
-                  <span>{simulation.reports?.length ?? 0} 份复盘</span>
-                </div>
-              </Link>
+              </div>
             ))
           ) : (
             <div className="lg:col-span-2 xl:col-span-3">

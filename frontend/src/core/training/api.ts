@@ -205,6 +205,8 @@ export const trainingApi = {
   deleteScenario: (id: string) =>
     request<{ success: boolean }>(`/scenarios/${id}`, { method: "DELETE" }),
   simulations: () => request<TrainingSimulation[]>("/simulations"),
+  deleteSimulation: (id: string) =>
+    request<{ success: boolean }>(`/simulations/${id}`, { method: "DELETE" }),
   createSimulation: (body: {
     customer_role_id: string;
     agent_role_id: string;

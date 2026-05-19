@@ -640,6 +640,7 @@ async def _get_session_row(session: Any, session_id: str, user_id: str | None) -
             select(SimulationSessionRow).where(
                 SimulationSessionRow.id == session_id,
                 _owner_filter(SimulationSessionRow, user_id),
+                SimulationSessionRow.status != "archived",
             )
         )
     ).scalar_one_or_none()
@@ -1044,8 +1045,19 @@ async def create_simulation(body: SimulationCreateRequest, request: Request) -> 
 async def list_simulations(request: Request) -> list[dict[str, Any]]:
     user_id = await _user_id(request)
     async with _session_factory()() as session:
-        rows = (await session.execute(select(SimulationSessionRow).where(_owner_filter(SimulationSessionRow, user_id)).order_by(SimulationSessionRow.updated_at.desc()).limit(30))).scalars().all()
+        rows = (await session.execute(select(SimulationSessionRow).where(_owner_filter(SimulationSessionRow, user_id), SimulationSessionRow.status != "archived").order_by(SimulationSessionRow.updated_at.desc()).limit(30))).scalars().all()
         return [_row_dict(row) for row in rows]
+
+
+@router.delete("/simulations/{session_id}")
+async def delete_simulation(session_id: str, request: Request) -> dict[str, bool]:
+    user_id = await _user_id(request)
+    async with _session_factory()() as session:
+        row = await _get_session_row(session, session_id, user_id)
+        row.status = "archived"
+        row.updated_at = _now()
+        await session.commit()
+        return {"success": True}
 
 
 @router.get("/simulations/{session_id}")
