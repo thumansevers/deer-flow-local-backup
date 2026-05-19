@@ -188,6 +188,9 @@ export function SimulationSetup() {
   const selectedScenario = scenarios.find(
     (scenario) => scenario.id === selectedScenarioId,
   );
+  const userActsAsAgent = practiceMode === "user_as_agent";
+  const userActsAsCustomer = practiceMode === "user_as_customer";
+  const visibleStepOffset = userActsAsAgent || userActsAsCustomer ? 1 : 0;
 
   useEffect(() => {
     document.title = "配置对练 - DeerFlow";
@@ -208,7 +211,19 @@ export function SimulationSetup() {
 
   async function createSimulation() {
     if (!selectedCustomerId || !selectedAgentId || !selectedScenarioId) {
-      toast.error("请先选择客户、代理人和场景。");
+      const missingVisibleRole =
+        (userActsAsAgent ? !selectedCustomerId : false) ||
+        (userActsAsCustomer ? !selectedAgentId : false) ||
+        (!userActsAsAgent && !userActsAsCustomer
+          ? !selectedCustomerId || !selectedAgentId
+          : false);
+      if (missingVisibleRole || !selectedScenarioId) {
+        toast.error("请先选择对练对象和场景。");
+        return;
+      }
+      toast.error(
+        "当前模式缺少后台占位角色，请先到角色工厂补齐客户和代理人角色。",
+      );
       return;
     }
     setBusy(true);
@@ -276,58 +291,72 @@ export function SimulationSetup() {
             </div>
           </SelectionPanel>
 
-          <SelectionPanel
-            title="2. 选择模拟客户"
-            description="客户会决定异议、情绪、防备程度和信息释放节奏。"
-            icon={UserRoundIcon}
-          >
-            <SelectionGrid>
-              {customers.length ? (
-                customers.map((role) => (
-                  <RoleCard
-                    key={role.id}
-                    role={role}
-                    active={selectedCustomerId === role.id}
-                    onClick={() => setSelectedCustomerId(role.id)}
+          {!userActsAsCustomer && (
+            <SelectionPanel
+              title="2. 选择模拟客户"
+              description={
+                userActsAsAgent
+                  ? "你将扮演代理人，只需要选择要面对的模拟客户。"
+                  : "客户会决定异议、情绪、防备程度和信息释放节奏。"
+              }
+              icon={UserRoundIcon}
+            >
+              <SelectionGrid>
+                {customers.length ? (
+                  customers.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedCustomerId === role.id}
+                      onClick={() => setSelectedCustomerId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={UserRoundIcon}
+                    title="没有客户角色"
+                    description="请先到角色工厂创建客户。"
                   />
-                ))
-              ) : (
-                <EmptyState
-                  icon={UserRoundIcon}
-                  title="没有客户角色"
-                  description="请先到角色工厂创建客户。"
-                />
-              )}
-            </SelectionGrid>
-          </SelectionPanel>
+                )}
+              </SelectionGrid>
+            </SelectionPanel>
+          )}
+
+          {!userActsAsAgent && (
+            <SelectionPanel
+              title={
+                userActsAsCustomer ? "2. 选择模拟代理人" : "3. 选择模拟代理人"
+              }
+              description={
+                userActsAsCustomer
+                  ? "你将扮演客户，只需要选择要训练的模拟代理人。"
+                  : "代理人角色用于设定销售风格、能力阶段和话术习惯。"
+              }
+              icon={BotIcon}
+            >
+              <SelectionGrid>
+                {agents.length ? (
+                  agents.map((role) => (
+                    <RoleCard
+                      key={role.id}
+                      role={role}
+                      active={selectedAgentId === role.id}
+                      onClick={() => setSelectedAgentId(role.id)}
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={BotIcon}
+                    title="没有代理人角色"
+                    description="请先到角色工厂创建代理人。"
+                  />
+                )}
+              </SelectionGrid>
+            </SelectionPanel>
+          )}
 
           <SelectionPanel
-            title="3. 选择模拟代理人"
-            description="代理人角色用于设定销售风格、能力阶段和话术习惯。"
-            icon={BotIcon}
-          >
-            <SelectionGrid>
-              {agents.length ? (
-                agents.map((role) => (
-                  <RoleCard
-                    key={role.id}
-                    role={role}
-                    active={selectedAgentId === role.id}
-                    onClick={() => setSelectedAgentId(role.id)}
-                  />
-                ))
-              ) : (
-                <EmptyState
-                  icon={BotIcon}
-                  title="没有代理人角色"
-                  description="请先到角色工厂创建代理人。"
-                />
-              )}
-            </SelectionGrid>
-          </SelectionPanel>
-
-          <SelectionPanel
-            title="4. 选择训练场景"
+            title={`${4 - visibleStepOffset}. 选择训练场景`}
             description="场景会约束训练目标、合规边界和复盘观察点。"
             icon={FileTextIcon}
           >
@@ -365,8 +394,14 @@ export function SimulationSetup() {
                 practiceModes.find((mode) => mode.value === practiceMode)?.title
               }
             />
-            <SelectedLine label="客户" value={selectedCustomer?.name} />
-            <SelectedLine label="代理人" value={selectedAgent?.name} />
+            <SelectedLine
+              label="客户"
+              value={userActsAsCustomer ? "用户" : selectedCustomer?.name}
+            />
+            <SelectedLine
+              label="代理人"
+              value={userActsAsAgent ? "用户" : selectedAgent?.name}
+            />
             <SelectedLine label="场景" value={selectedScenario?.name} />
             <label className="block min-w-0 space-y-1.5">
               <span className="text-muted-foreground text-xs font-medium">

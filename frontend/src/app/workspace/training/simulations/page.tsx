@@ -71,10 +71,9 @@ export default function TrainingSimulationsPage() {
   }, []);
 
   async function deleteSimulation(simulation: TrainingSimulation) {
-    const customer = roleName(roles, simulation.customer_role_id);
-    const agent = roleName(roles, simulation.agent_role_id);
+    const title = simulationTitle(simulation, roles);
     const confirmed = window.confirm(
-      `确定删除这条对练记录吗？\n\n${customer} × ${agent}\n删除后会从对练库隐藏。`,
+      `确定删除这条对练记录吗？\n\n${title}\n删除后会从对练库隐藏。`,
     );
     if (!confirmed) return;
 
@@ -163,8 +162,7 @@ export default function TrainingSimulationsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">
-                        {roleName(roles, simulation.customer_role_id)} ×{" "}
-                        {roleName(roles, simulation.agent_role_id)}
+                        {simulationTitle(simulation, roles)}
                       </div>
                       <div className="text-muted-foreground mt-1 truncate text-xs">
                         {scenarioName(scenarios, simulation.scenario_id)}
@@ -225,6 +223,7 @@ function filterSimulations(
   return simulations.filter((simulation) =>
     [
       simulation.status,
+      simulationTitle(simulation, roles),
       roleName(roles, simulation.customer_role_id),
       roleName(roles, simulation.agent_role_id),
       scenarioName(scenarios, simulation.scenario_id),
@@ -233,6 +232,43 @@ function filterSimulations(
       .toLowerCase()
       .includes(keyword),
   );
+}
+
+type PracticeMode = "ai_auto" | "user_as_agent" | "user_as_customer";
+
+function simulationOptionsKey(simulationId: string) {
+  return `insurance-training:simulation-options:${simulationId}`;
+}
+
+function readPracticeMode(simulationId: string): PracticeMode | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(simulationOptionsKey(simulationId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { practiceMode?: unknown };
+    if (
+      parsed.practiceMode === "ai_auto" ||
+      parsed.practiceMode === "user_as_agent" ||
+      parsed.practiceMode === "user_as_customer"
+    ) {
+      return parsed.practiceMode;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function simulationTitle(
+  simulation: TrainingSimulation,
+  roles: TrainingRole[],
+) {
+  const customer = roleName(roles, simulation.customer_role_id);
+  const agent = roleName(roles, simulation.agent_role_id);
+  const practiceMode = readPracticeMode(simulation.id);
+  if (practiceMode === "user_as_agent") return `用户 × ${customer}`;
+  if (practiceMode === "user_as_customer") return `用户 × ${agent}`;
+  return `${customer} × ${agent}`;
 }
 
 function roleName(roles: TrainingRole[], id: string) {
